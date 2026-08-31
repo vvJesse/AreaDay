@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ResearchRamp</title>
+    <link rel="stylesheet" href="/styles.css?v=6" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="app-header">
+        <div class="brand">ResearchRamp <span id="corpusLabel"></span></div>
+        <nav id="mainNav" class="main-nav" aria-label="ResearchRamp 功能" hidden>
+          <button type="button" data-view="vocabulary">领域词表</button>
+          <button type="button" data-view="briefs">研究简报</button>
+          <button type="button" data-view="review">今日复习 <span id="navDueCount" class="nav-count" hidden></span></button>
+        </nav>
+        <div class="header-status">
+          <label id="domainSwitcher" class="domain-switcher" hidden>
+            <span>研究领域</span>
+            <select id="domainSelect" aria-label="切换研究领域"></select>
+          </label>
+          <div class="progress-text" id="progressText">正在载入…</div>
+        </div>
+      </header>
+
+      <section id="questionView" class="card question-card" hidden>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <p class="eyebrow">只看这个词</p>
+        <h1 id="word">—</h1>
+        <p id="partOfSpeech" class="part-of-speech"></p>
+        <p class="prompt">你能大致说出它最常见的含义吗？</p>
+        <div class="answers">
+          <button class="answer known" data-answer="known"><span>1</span>认识</button>
+          <button class="answer unsure" data-answer="unsure"><span>2</span>不确定</button>
+          <button class="answer unknown" data-answer="unknown"><span>3</span>不认识</button>
+        </div>
+        <p class="hint">请按第一反应回答。也可以直接按键盘 1、2、3。</p>
+      </section>
+
+      <section id="vocabularyView" class="results app-view" hidden>
+        <div class="result-hero card">
+          <p class="eyebrow">个人领域词表</p>
+          <h1>第一轮估计结果</h1>
+          <p>系统会把可能仍会影响阅读的词加入你的个人领域词表。</p>
+        </div>
+        <div class="library-tabs" role="tablist" aria-label="领域语言资产">
+          <button id="wordTab" class="active" type="button" role="tab" aria-selected="true">生词</button>
+          <button id="termTab" type="button" role="tab" aria-selected="false">术语 <span id="termTabCount"></span></button>
+        </div>
+        <div id="wordVocabularyPanel" role="tabpanel">
+        <div class="metrics">
+          <article class="metric card"><span>领域候选词</span><strong id="totalCount">—</strong></article>
+          <article class="metric card accent"><span>暂不加入词表</span><strong id="knownCount">—</strong></article>
+          <article class="metric card"><span>进入个人词表</span><strong id="remainingCount">—</strong></article>
+        </div>
+        <div class="breakdown card">
+          <h2>预测分布</h2>
+          <div class="bar"><div id="knownBar" class="segment known-segment"></div><div id="uncertainBar" class="segment uncertain-segment"></div><div id="unknownBar" class="segment unknown-segment"></div></div>
+          <div class="legend">
+            <span><i class="dot known-dot"></i>大概率已掌握 <b id="knownLegend">—</b></span>
+            <span><i class="dot uncertain-dot"></i>掌握情况不确定 <b id="uncertainLegend">—</b></span>
+            <span><i class="dot unknown-dot"></i>大概率尚未掌握 <b id="unknownLegend">—</b></span>
+          </div>
+        </div>
+        <section id="masteryOverview" class="mastery-overview card" aria-labelledby="masteryHeading" hidden>
+          <div class="mastery-heading">
+            <div><p class="eyebrow">个人词表掌握度</p><h2 id="masteryHeading">按词汇重要性查看</h2></div>
+            <p>只统计已经进入个人词表的词；包含校准时已判断掌握但因重要性保留的词，以及你后来明确标记掌握的词。</p>
+          </div>
+          <div class="mastery-groups">
+            <article class="mastery-group mastery-priority">
+              <div class="mastery-group-head"><span>重要与核心词</span><strong id="priorityMasteryPercent">—%</strong></div>
+              <div id="priorityMasteryTrack" class="mastery-track" role="progressbar" aria-label="重要与核心词预计掌握率" aria-valuemin="0" aria-valuemax="100"><div id="priorityMasteryBar"></div></div>
+              <p><b id="priorityMasteryCount">— / —</b> 个已掌握 · A/B 级</p>
+            </article>
+            <article class="mastery-group mastery-other">
+              <div class="mastery-group-head"><span>其他词</span><strong id="otherMasteryPercent">—%</strong></div>
+              <div id="otherMasteryTrack" class="mastery-track" role="progressbar" aria-label="其他词预计掌握率" aria-valuemin="0" aria-valuemax="100"><div id="otherMasteryBar"></div></div>
+              <p><b id="otherMasteryCount">— / —</b> 个已掌握 · C/D 级</p>
+            </article>
+          </div>
+        </section>
+        <section class="importance card">
+          <div class="importance-copy">
+            <p class="eyebrow">领域词汇优先级</p>
+            <h2 id="importanceHeadline">真正值得优先学习的是 — 个</h2>
+            <p id="importanceSummary">正在分析这些词在 Mini Corpus 中的重复程度。</p>
+          </div>
+          <div class="importance-chart-wrap">
+            <div id="importanceDonut" class="importance-donut" role="img" aria-label="领域词汇优先级分布"><div class="donut-center"><strong id="priorityCount">—</strong><span>优先学习</span></div></div>
+          </div>
+          <div id="importanceLegend" class="importance-legend" aria-label="ABCD 分级说明"></div>
+        </section>
+        <section class="threshold-card card" aria-labelledby="thresholdTitle">
+          <div class="threshold-heading">
+            <div><p class="eyebrow">调整个人词表</p><h2 id="thresholdTitle">这份词表要收多少词？</h2><p>向左减少你大概率已经掌握的词；向右多收一些可能仍会让你卡住的词。</p></div>
+            <div class="threshold-summary" aria-live="polite"><span>当前词表</span><output id="thresholdValue" for="thresholdSlider">— 个词</output></div>
+          </div>
+          <aside class="fit-guidance">
+            <strong>怎样算调整得比较合适？</strong>
+            <p>建议调整到这样的程度：下面这些接近词表边界的词，你大部分都认识，但其中一些需要想几秒钟才能反应过来，同时也夹杂少量确实不认识的词。</p>
+            <div class="guidance-actions"><span>几乎全部都能立刻认出 <b>向“少收一些”移动</b></span><span>有很多词完全不认识 <b>向“多收一些”移动</b></span></div>
+          </aside>
+          <div class="slider-shell">
+            <p class="slider-callout">拖动圆点调整词表范围</p>
+            <input id="thresholdSlider" type="range" min="75" max="98" step="1" value="90" aria-label="个人词表范围" aria-describedby="thresholdRangeHint thresholdEffect" />
+            <div id="thresholdRangeHint" class="slider-scale"><span class="scale-start"><b>少收一些</b><small>词表更短</small></span><span id="recommendedMark" class="scale-recommended"><b>推荐起点</b><small>默认设置</small></span><span class="scale-end"><b>多收一些</b><small>更少遗漏</small></span></div>
+          </div>
+          <div class="threshold-feedback"><p id="thresholdEffect" class="threshold-effect">正在计算这个范围会收入多少词。</p><button id="resetThresholdButton" class="threshold-reset" type="button">恢复推荐起点</button></div>
+          <p class="protection-note"><strong>重要词保护：</strong>反复出现在多篇论文中的 A/B 级词，即使接近边界，也会优先加入个人词表。</p>
+        </section>
+        <div class="review-grid">
+          <article class="card review-card"><h2>暂不加入词表</h2><p>系统目前认为这些词不需要专门学习。它们是词表外最接近边界的一组词。</p><div id="knownBoundary" class="word-list"></div></article>
+          <article class="card review-card"><h2>将加入个人词表</h2><p>系统目前建议继续关注这些词。它们是词表内最接近边界的一组词。</p><div id="remainingBoundary" class="word-list"></div></article>
+        </div>
+        <div class="actions"><a class="download" href="/api/export.tsv" download="vocabulary-calibration.tsv">下载完整结果</a><button id="resetButton" class="reset">重新回答</button></div>
+        </div>
+        <section id="terminologyPanel" class="terminology-panel" role="tabpanel" hidden>
+          <div class="card terminology-intro">
+            <div><p class="eyebrow">领域术语</p><h2 id="terminologyHeadline">正在读取审核后的术语表</h2><p>术语不经过普通词汇预测。你可以直接查看真实论文语境，再决定自己是否需要学习。</p></div>
+            <div class="terminology-status-legend"><span>尚未确认</span><span>学习中</span><span>已经理解</span></div>
+          </div>
+          <div class="card terminology-browser">
+            <div class="terminology-toolbar">
+              <label class="term-search"><span>搜索术语</span><input id="termSearch" type="search" placeholder="搜索术语、含义或来源论文" autocomplete="off" /></label>
+              <div class="term-filters" role="group" aria-label="按术语状态筛选">
+                <button class="active" type="button" data-term-filter="all">全部 <span id="termFilterAll">0</span></button>
+                <button type="button" data-term-filter="new">尚未确认 <span id="termFilterNew">0</span></button>
+                <button type="button" data-term-filter="learning">学习中 <span id="termFilterLearning">0</span></button>
+                <button type="button" data-term-filter="mastered">已经理解 <span id="termFilterMastered">0</span></button>
+              </div>
+            </div>
+            <p id="termLibrarySummary" class="term-library-summary">正在整理术语。</p>
+          </div>
+          <div id="terminologyList" class="terminology-list"></div>
+          <section id="termLibraryEmpty" class="card term-library-empty" hidden><h3>没有找到匹配的术语</h3><p>可以换一个关键词，或者查看其他掌握状态。</p></section>
+          <nav id="termPagination" class="card term-pagination" aria-label="术语分页" hidden>
+            <button id="termPreviousPage" type="button">上一页</button>
+            <div id="termPageButtons" class="term-page-buttons"></div>
+            <button id="termNextPage" type="button">下一页</button>
+          </nav>
+        </section>
+      </section>
+
+      <section id="briefsView" class="app-view" hidden>
+        <div class="result-hero card brief-hero"><p class="eyebrow">持续研究支持</p><h1>研究简报</h1><p id="briefHeroCopy">优先追踪新论文，也保留真正值得投入时间的研究资料。</p></div>
+        <div id="briefMetrics" class="metrics"></div>
+        <section id="briefExplorer" class="card brief-explorer" hidden>
+          <div class="brief-explorer-heading">
+            <div><p class="eyebrow">历史周报</p><h2>搜索或切换到某一期</h2></div>
+            <p>支持标题、摘要、论文、期刊、推荐理由和词汇的模糊搜索。</p>
+          </div>
+          <div class="brief-toolbar">
+            <label class="brief-search" for="briefSearch"><span>模糊搜索</span><input id="briefSearch" type="search" autocomplete="off" placeholder="例如：implicature、greenwashing、证据不足"></label>
+            <label class="brief-selector" for="briefEditionSelect"><span>切换周报</span><select id="briefEditionSelect"><option value="">全部周报</option></select></label>
+          </div>
+          <div class="brief-explorer-footer"><p id="briefResultSummary" aria-live="polite">正在整理周报历史。</p><button id="briefClearFilters" class="text-button" type="button" hidden>清除筛选</button></div>
+        </section>
+        <div id="briefsList" class="brief-list"></div>
+        <section id="briefNoResults" class="card empty-state" hidden><span class="empty-icon">⌕</span><h2>没有找到匹配的周报</h2><p>可以缩短关键词、换一种拼写，或者清除当前周报筛选。</p><button id="briefNoResultsClear" class="secondary-button" type="button">清除筛选</button></section>
+        <nav id="briefPagination" class="card brief-pagination" aria-label="周报分页" hidden>
+          <button id="briefPreviousPage" type="button">上一页</button>
+          <div id="briefPageButtons" class="brief-page-buttons"></div>
+          <button id="briefNextPage" type="button">下一页</button>
+        </nav>
+        <section id="briefEmpty" class="card empty-state" hidden><span class="empty-icon">⌁</span><h2>第一份研究简报还在路上</h2><p>启用定期服务后，ResearchRamp 会持续追踪你的研究方向；只有取得可读正文并完成来源核对的论文或公开资料才会进入简报。</p><span class="command-pill">在聊天中运行 $researchramp schedule</span></section>
+      </section>
+
+      <section id="paperView" class="app-view" hidden>
+        <button id="backToBriefs" class="text-button back-button" type="button">← 返回研究简报</button>
+        <article class="card paper-hero">
+          <div class="paper-kicker"><span id="paperType" class="source-badge">—</span><span id="paperDate"></span><span id="paperVenue"></span></div>
+          <h1 id="paperTitle">—</h1><p id="paperValue" class="paper-value"></p>
+          <div class="paper-stats"><span><b id="paperMinutes">—</b> 分钟</span><span><b id="paperWordCount">—</b> 个预计生词</span><span><b id="paperTermCount">—</b> 个领域术语</span></div>
+          <div class="paper-actions"><button id="startPreheatButton" class="primary-button" type="button">开始预热并安排生词</button><a id="openSourceLink" class="secondary-link" target="_blank" rel="noreferrer">打开原文 ↗</a></div>
+        </article>
+        <section class="card shadow-card"><p class="eyebrow">影子导读</p><h2>先用几分钟进入这篇文章的语言环境</h2><div id="shadowPreview" class="shadow-preview"></div></section>
+        <section class="card paper-vocabulary-card"><div class="section-heading"><div><p class="eyebrow">阅读前预热 · 生词</p><h2>预计会影响你阅读的词</h2></div><span id="preheatStatus" class="status-pill">尚未开始</span></div><div id="paperVocabulary" class="paper-vocabulary"></div></section>
+        <section class="card paper-vocabulary-card"><div class="section-heading"><div><p class="eyebrow">阅读前预热 · 术语</p><h2>先确认这些概念是否已经理解</h2></div><span id="paperTermSummary" class="status-pill">—</span></div><div id="paperTerminology" class="paper-vocabulary"></div></section>
+      </section>
+
+      <section id="reviewView" class="app-view" hidden>
+        <div class="result-hero card review-hero"><p class="eyebrow">持续学习</p><h1>今日复习</h1><p id="reviewSummary">正在读取你的学习安排。</p></div>
+        <div id="reviewHub" class="review-hub">
+          <article class="card review-entry-card">
+            <p class="eyebrow">到期复习</p>
+            <h2 id="dueReviewHeadline">正在读取复习队列</h2>
+            <p id="dueReviewDescription">这里包含已经进入学习计划并在今天到期的生词和术语。</p>
+            <button id="startDueReviewButton" class="primary-button" type="button">开始今日复习</button>
+          </article>
+          <article class="card review-entry-card term-discovery-card">
+            <p class="eyebrow">可选 · 新术语</p>
+            <h2 id="termDiscoveryHeadline">今天也可以认识几个新术语</h2>
+            <p id="termDiscoveryDescription">每次只看5个。只有你选择“需要学习”的术语才会进入复习。</p>
+            <button id="startTermCheckButton" class="secondary-button" type="button">看看今天的5个术语</button>
+          </article>
+        </div>
+        <section id="reviewSession" class="card spaced-card" hidden><p id="reviewKind" class="eyebrow">现在回想一下</p><h2 id="reviewWord">—</h2><p id="reviewPos" class="part-of-speech"></p><button id="revealReviewButton" class="secondary-button" type="button">显示含义和语境</button><div id="reviewAnswer" class="review-answer" hidden><p id="reviewMeaningEn" class="meaning-en"></p><strong id="reviewMeaning"></strong><p id="reviewContext"></p><a id="reviewSource" target="_blank" rel="noreferrer"></a></div><div id="reviewRatings" class="review-ratings" hidden><button data-rating="again" class="rating again">忘了</button><button data-rating="hard" class="rating hard">勉强想起来</button><button data-rating="good" class="rating good">记得</button></div><button id="masterReviewButton" class="master-action" type="button">我已掌握，不再复习</button></section>
+        <section id="termCheckSession" class="card term-check-session" hidden>
+          <div class="term-check-top"><span id="termCheckProgress">1 / 5</span><button id="exitTermCheckButton" class="text-button" type="button">结束本轮</button></div>
+          <p class="eyebrow">看看这个术语是否已经熟悉</p>
+          <h2 id="termCheckName">—</h2>
+          <p id="termCheckMeaningEn" class="term-check-meaning-en"></p>
+          <p id="termCheckMeaningZh" class="term-check-meaning-zh"></p>
+          <p id="termCheckRole" class="term-check-role"></p>
+          <div class="term-check-evidence"><p id="termCheckContext"></p><a id="termCheckSource" target="_blank" rel="noreferrer"></a></div>
+          <div class="term-check-actions">
+            <button id="termCheckMastered" type="button">已经会了，不加入复习</button>
+            <button id="termCheckLearning" class="primary-button" type="button">需要学习，加入复习</button>
+            <button id="termCheckSkip" class="text-button" type="button">这次跳过</button>
+          </div>
+        </section>
+        <section id="termCheckComplete" class="card term-check-complete" hidden>
+          <span class="empty-icon">✓</span><h2>这一组术语已经看完</h2>
+          <p id="termCheckResult">正在汇总结果。</p>
+          <div class="term-check-complete-actions"><button id="checkMoreTermsButton" class="secondary-button" type="button">今天再看5个</button><button id="finishTermCheckButton" class="primary-button" type="button">返回今日复习</button></div>
+        </section>
+      </section>
+
+      <section id="scheduleView" class="app-view" hidden>
+        <div class="result-hero card schedule-hero"><p class="eyebrow">ResearchRamp Schedule</p><h1>安排持续研究支持</h1><p>设置一次即可。后台检索不会单独打扰你，简报和到期复习会按你的节奏出现。</p></div>
+        <form id="scheduleForm" class="schedule-form">
+          <section class="card schedule-option"><div class="schedule-option-head"><div><p class="eyebrow">每周一次</p><h2>研究简报</h2><p>只推荐已完成全文下载、论文身份核对和词汇语境提取的论文。</p></div><label class="switch"><input id="weeklyEnabled" type="checkbox" /><span></span></label></div><div class="schedule-fields"><label>星期<select id="weeklyWeekday"><option value="1">星期一</option><option value="2">星期二</option><option value="3">星期三</option><option value="4">星期四</option><option value="5">星期五</option><option value="6">星期六</option><option value="7">星期日</option></select></label><label>提醒时间<input id="weeklyTime" type="time" required /></label></div></section>
+          <section class="card schedule-option"><div class="schedule-option-head"><div><p class="eyebrow">按需提醒</p><h2>每日语言复习</h2><p>只有存在到期生词或术语时才提醒；不会阻止你查看简报或打开论文。</p></div><label class="switch"><input id="reviewEnabled" type="checkbox" /><span></span></label></div><div class="schedule-fields one-field"><label>提醒时间<input id="reviewTime" type="time" required /></label></div></section>
+          <div class="schedule-submit"><p id="scheduleStatus">时间使用这台电脑的本地时区。</p><button class="primary-button" type="submit">保存并启用</button></div>
+        </form>
+      </section>
+
+      <section id="errorView" class="card error" hidden><h1>页面没有正常载入</h1><p id="errorMessage"></p></section>
+    </main>
+    <script src="/app.js?v=5"></script>
+  </body>
+</html>

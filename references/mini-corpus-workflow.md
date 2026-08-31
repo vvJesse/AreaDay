@@ -1,0 +1,73 @@
+# Initial mini-corpus workflow
+
+The initial run begins only after the user confirms both the interpreted research profile and the exact absolute local directory.
+
+## Acquisition order
+
+1. Read the research scope and retrieval scope that the user separately confirmed. These contain the accepted disciplines/categories, recent-year boundary, and older-foundation allowance.
+2. Search OpenAlex across the confirmed query facets and send the confirmed `primary_topic.*` taxonomy filter with every request. The one-time local setup records either keyed or anonymous access in `~/.researchramp/credentials.ini`. A configured key increases the metadata budget and enables the cached OpenAlex content endpoint as a same-paper route. Never persist the key in corpus files.
+3. Search arXiv only when the confirmed provider list includes it; every arXiv query must include subject categories and a confirmed date lane, with at least three seconds between requests. Do not use Semantic Scholar.
+4. Exclude obvious comments, replies, corrections, errata, and withdrawals. Interleave candidates across query groups and providers, cap the foundation lane, and deduplicate by DOI, OpenAlex ID, arXiv ID, or normalized title.
+5. Stop after metadata discovery. The current host agent reviews titles and abstracts, rejects incidental keyword matches and off-scope records, and writes an ordered list of up to 100 approved IDs. Do not ask the user to screen individual papers.
+6. Download only reviewed public PDF routes returned by the providers. Try external OA locations and mirrors first. With keyed OpenAlex access, use the OpenAlex content endpoint only after those routes fail. Validate HTTPS, the PDF signature, and a 100 MB per-file ceiling. Continue to later reviewed candidates until 70 valid PDFs are present or the reviewed list is exhausted; 60–69 is a usable initial corpus and must be reported as such.
+7. Keep every file and result in the confirmed local directory. Do not crawl publisher pages, bypass access controls, or substitute fuzzy title matches.
+
+This order is automatic. The user does not need to choose a provider paper by paper.
+
+## Local corpus analysis
+
+1. Extract every valid downloaded PDF locally with PyMuPDF.
+2. Keep the academic body while removing front matter before the abstract, references/bibliography, acknowledgements, repeated page headers and footers, page numbers, numeric-heavy rows, and duplicate captions. Preserve the cleaned text under `analysis/text/`.
+3. Deduplicate versions using exact DOI, arXiv ID, or normalized title. Treat papers as near-duplicate versions only when title-token overlap is at least 0.85 and title-plus-abstract embedding similarity is at least 0.97. Keep the better-extracted version.
+4. Compare title plus abstract with the confirmed research profile using the local embedding model. If at least eight usable papers are present, exclude only the extreme low-similarity tail from lexical statistics. Preserve every PDF and write the decision and score to the audit file.
+5. Use spaCy over the retained papers' complete cleaned full text to build lemma frequency, document frequency, document share, Juilland dispersion, surface forms, representative sentences, and source-paper links.
+6. Check the aggregated spaCy lemmas against the local spelling lexicon to create a high-recall suspicious-item queue. The current host agent reviews surface forms and full-text sentences, corrects only confirmed lemma or fused-form errors, and drops only confirmed extraction noise. Valid technical vocabulary remains unchanged. Apply this review to vocabulary records only; do not automatically rewrite extracted text or add PDF line-joining rules.
+7. Mine multiword noun-phrase terminology candidates from that same full text, including counts, document spread, C-value, surface forms, possible acronyms, representative sentences, and sources.
+8. Preserve that complete candidate set, then retain phrases appearing in at least 10% of the included papers as the shared-language review queue. Calculate the minimum with `ceil(included_papers × 0.10)`. Do not select a target output size or discard the raw candidate asset.
+9. Review the coverage-filtered queue once. Keep only stable shared terminology of this research direction. Reject generic academic phrases, named entities, paper-local coinages, author-specific labels, and redundant variants; do not create low-coverage exceptions. Write a contextual English explanation, Chinese explanation, concept role, and stable sense key for every retained term, but no separate selection reason. The finalized term set and its explanations must match exactly; missing explanations are a hard error.
+10. Continue into the local 30-question calibration page using this corpus's `analysis/vocabulary-map.tsv`. Store the answers and personalized result in the same `analysis/` directory. Corpus analysis alone is not the end of initialization. Keep the reviewed multiword terminology asset separate from the single-word calibration model.
+
+Title and abstract are used for paper-level relevance only. Vocabulary and terminology evidence comes from full text. This first pass uses no general-English baseline, topic clustering, topic reweighting, or user-mastery inference, and it is not resized merely to reach a preferred entry count.
+
+## Resumability
+
+- Candidate metadata and per-query provider outcomes are saved locally.
+- Existing valid PDFs are reused.
+- `download-results.jsonl` is rewritten after every attempt, so an interrupted run can continue from already valid PDFs.
+
+The process remains in the current desktop task. There is no custom notification subsystem; completion is the task's ordinary final response.
+
+## Output layout
+
+```text
+<confirmed-directory>/
+  research-profile-input.json   Chat-confirmed input profile
+  research-profile.json         Profile copied into the run record
+  status.json                   Recovery/diagnostic stage
+  candidates.jsonl             New multi-provider candidates for this run
+  search-attempts.json          Per-query provider outcomes
+  agent-candidate-selection.json Host-agent reviewed and ordered IDs
+  papers/                       Locally stored PDFs
+  download-results.jsonl        Per-paper provider attempts and result
+  cold-start-summary.json       Acquisition and analysis totals
+  analysis/text/                Locally extracted text
+  analysis/papers.jsonl         Per-PDF extraction and analysis result
+  analysis/paper-decisions.jsonl Auditable include/duplicate/relevance decisions
+  analysis/vocabulary-map.tsv   Full-text lemma candidates and corpus statistics
+  analysis/vocabulary-map.jsonl Same candidates with structured contexts
+  analysis/orthography-review-input.json High-recall contextual spelling review queue
+  analysis/orthography-review-selection.json Host-agent confirmed corrections only
+  analysis/orthography-review-summary.json Applied correction counts and provenance
+  analysis/raw-terminology-candidates.tsv Complete full-text multiword candidates
+  analysis/raw-terminology-candidates.jsonl Same complete candidates in structured form
+  analysis/terminology-candidates.tsv Candidates found in at least 10% of included papers
+  analysis/terminology-candidates.jsonl Same coverage-filtered candidates in structured form
+  analysis/terminology-review-input.json Host-review context and schema
+  analysis/first-terminology-map.jsonl Host-reviewed domain terminology
+  analysis/terminology-explanations.json Exact bilingual explanations for the reviewed terms
+  analysis/vocabulary-calibration-session.json The user's 30 direct answers
+  analysis/vocabulary-calibration-result.json Personalized counts, selected 75%–98% threshold, protected boundary count, and importance tiers
+  analysis/personalized-vocabulary.tsv Per-word familiarity prediction, classification, importance tier, protection flag, and selected threshold
+  analysis/corpus-stats.json    Corpus extraction and lexical statistics
+  analysis/summary.md           Human-readable raw-analysis summary
+```

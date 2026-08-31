@@ -1,0 +1,9 @@
+arxiv-mcp-server==0.7.2
+fsrs==6.3.2
+pypdf==6.16.2
+pymupdf==1.26.4
+requests==2.34.2
+sentence-transformers==6.0.0
+spacy==3.8.16
+symspellpy==6.10.0
+wordfreq==3.1.1

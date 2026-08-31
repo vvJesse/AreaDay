@@ -1,0 +1,56 @@
+{
+  "brief_id": "fixture-2026-W35-domain-alpha",
+  "period_start": "2026-08-24",
+  "period_end": "2026-08-30",
+  "created_at": "2026-08-30T00:00:00+00:00",
+  "headline": "TEST FIXTURE — Domain Alpha weekly brief",
+  "summary": "Synthetic data used only by automated tests; it is not a real recommendation.",
+  "items": [
+    {
+      "item_id": "fixture-paper-alpha",
+      "item_type": "new_paper",
+      "title": "TEST FIXTURE — Paper Alpha",
+      "source_url": "https://example.invalid/researchramp/paper-alpha",
+      "publication_date": "2026-08-29",
+      "venue": "Synthetic test venue",
+      "value_reason": "Synthetic relevance explanation for an isolated test workspace.",
+      "estimated_minutes": 12,
+      "shadow_preview": "This synthetic preview contains alpha terminology for a test-only paper.",
+      "vocabulary": [
+        {
+          "lemma": "alpha",
+          "meaning": "测试领域 Alpha 中使用的合成术语",
+          "part_of_speech": "noun",
+          "context": "This synthetic source sentence contains the alpha term.",
+          "kind": "terminology"
+        },
+        {
+          "lemma": "isolation",
+          "meaning": "不同数据空间彼此分离",
+          "part_of_speech": "noun",
+          "context": "The fixture verifies isolation between two local domains.",
+          "kind": "vocabulary"
+        },
+        {
+          "lemma": "provenance",
+          "meaning": "内容及其来源之间可验证的对应关系",
+          "part_of_speech": "noun",
+          "context": "Every fixture context has explicit provenance within its source packet.",
+          "kind": "vocabulary"
+        }
+      ]
+    },
+    {
+      "item_id": "fixture-guide-alpha",
+      "item_type": "guide",
+      "title": "TEST FIXTURE — Guide Alpha",
+      "source_url": "https://example.invalid/researchramp/guide-alpha",
+      "publication_date": "2026-08-28",
+      "venue": "Synthetic test institution",
+      "value_reason": "Synthetic supplementary material for validation tests.",
+      "estimated_minutes": 7,
+      "shadow_preview": "This synthetic guide preview intentionally contains no vocabulary card.",
+      "vocabulary": []
+    }
+  ]
+}

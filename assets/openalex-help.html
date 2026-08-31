@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ResearchRamp · 获取 OpenAlex Key</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17231d;
+        --muted: #68736d;
+        --paper: #f7f4ed;
+        --card: rgba(255, 255, 255, 0.92);
+        --line: #dedfd8;
+        --green: #237a57;
+        --green-soft: #dceee4;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 14% 12%, rgba(214, 231, 216, 0.92), transparent 28rem),
+          radial-gradient(circle at 88% 84%, rgba(241, 223, 186, 0.72), transparent 30rem),
+          var(--paper);
+      }
+
+      a { color: inherit; }
+
+      .shell {
+        width: min(780px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 64px 0 80px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--green);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--green);
+        box-shadow: 0 0 0 5px var(--green-soft);
+      }
+
+      h1 {
+        margin: 22px 0 14px;
+        max-width: 680px;
+        font-size: clamp(34px, 6vw, 58px);
+        line-height: 1.04;
+        letter-spacing: -0.045em;
+      }
+
+      .lead {
+        margin: 0;
+        max-width: 650px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.72;
+      }
+
+      .card {
+        margin-top: 36px;
+        padding: 30px;
+        border: 1px solid rgba(222, 223, 216, 0.9);
+        border-radius: 24px;
+        background: var(--card);
+        box-shadow: 0 18px 50px rgba(34, 48, 40, 0.08);
+        backdrop-filter: blur(16px);
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 16px;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .step:first-child { padding-top: 0; }
+      .step:last-child { padding-bottom: 0; border-bottom: 0; }
+
+      .number {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 13px;
+        color: var(--green);
+        background: var(--green-soft);
+        font-weight: 800;
+      }
+
+      h2 {
+        margin: 1px 0 8px;
+        font-size: 19px;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 14px;
+        min-height: 44px;
+        padding: 0 18px;
+        border-radius: 13px;
+        color: white;
+        background: var(--green);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      code {
+        padding: 3px 7px;
+        border-radius: 7px;
+        color: var(--ink);
+        background: #ecefe9;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .privacy {
+        margin-top: 20px;
+        padding: 16px 18px;
+        border-radius: 15px;
+        color: #42604f;
+        background: rgba(220, 238, 228, 0.72);
+        font-size: 14px;
+      }
+
+      @media (max-width: 560px) {
+        .shell { padding-top: 38px; }
+        .card { padding: 22px; border-radius: 20px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div class="eyebrow"><span class="dot"></span>ResearchRamp 初次设置</div>
+      <h1>获取你的 OpenAlex API Key</h1>
+      <p class="lead">免费 Key 可以提高跨学科论文检索和公开全文获取的可用额度。ResearchRamp 已经同时打开本地配置文件；请先查看 Codex 或 WorkBuddy 右侧的已打开文件，部分环境也可能使用系统文本编辑器打开。</p>
+
+      <section class="card" aria-label="OpenAlex Key 获取步骤">
+        <div class="step">
+          <div class="number">1</div>
+          <div>
+            <h2>打开 OpenAlex API 设置</h2>
+            <p>登录或免费创建 OpenAlex 账户，然后进入 API 设置页面。</p>
+            <a class="button" href="https://openalex.org/settings/api" target="_blank" rel="noreferrer">打开 OpenAlex Settings ↗</a>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="number">2</div>
+          <div>
+            <h2>复制完整的 API Key</h2>
+            <p>在设置页面复制完整 Key，不要复制变量名、引号或其他说明文字。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="number">3</div>
+          <div>
+            <h2>找到并填写 credentials.ini</h2>
+            <p>请先到 Codex 或 WorkBuddy 右侧的「已打开文件」中找到 <code>credentials.ini</code>；部分环境可能会在系统文本编辑器中打开。把 Key 粘贴到 <code>api_key =</code> 的等号右侧，然后保存。ResearchRamp 会自动验证；看到 Codex 或 WorkBuddy 确认成功后，你就可以离开。</p>
+          </div>
+        </div>
+      </section>
+
+      <p class="privacy">本页面不会读取、接收或保存你的 Key。Key 只写入这台电脑上的 ResearchRamp 配置文件。</p>
+    </main>
+  </body>
+</html>

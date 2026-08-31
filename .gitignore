@@ -1,0 +1,14 @@
+.venv/
+.cache/
+.models/
+.runtime/
+researchramp-data/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local calibration sessions and generated personalized results
+app/session.json
+**/vocabulary-calibration-session.json
+**/vocabulary-calibration-result.json
+**/personalized-vocabulary.tsv
