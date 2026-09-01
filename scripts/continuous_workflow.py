@@ -848,6 +848,14 @@ def prepare(workspace: Path, selection_path: Path) -> dict[str, Any]:
 def validate_output_provenance(payload: dict[str, Any], packet: dict[str, Any]) -> None:
     """Reject title/link/context combinations not grounded in the prepared source."""
 
+    expected_brief_id = str(packet.get("brief_id") or "").strip()
+    if expected_brief_id and str(payload.get("brief_id") or "").strip() != expected_brief_id:
+        raise ValueError("finished brief changed its controller-assigned brief_id")
+    for key in ("period_start", "period_end"):
+        expected_period = str(packet.get(key) or "").strip()
+        if expected_period and str(payload.get(key) or "").strip() != expected_period:
+            raise ValueError(f"finished brief changed its prepared {key}")
+
     expected: dict[str, dict[str, Any]] = {}
     for raw in packet.get("paper_items") or []:
         item = dict(raw)
@@ -960,7 +968,10 @@ def parse_args() -> argparse.Namespace:
     finalize_parser.add_argument("--agent-output", type=Path, required=True)
     import_parser = subparsers.add_parser("import-brief")
     import_parser.add_argument("--input", type=Path, required=True)
-    subparsers.add_parser("schedule-handoff")
+    handoff_parser = subparsers.add_parser("schedule-handoff")
+    handoff_parser.add_argument(
+        "--section", choices=("weekly_brief", "daily_review")
+    )
     subparsers.add_parser("due-count")
     return parser.parse_args()
 
@@ -984,7 +995,7 @@ def main() -> int:
     elif args.command == "import-brief":
         result = ContinuousStore(workspace).import_brief(read_json(args.input.resolve()))
     elif args.command == "schedule-handoff":
-        result = ContinuousStore(workspace).automation_handoff()
+        result = ContinuousStore(workspace).automation_handoff(args.section)
     elif args.command == "due-count":
         result = {"due_count": len(ContinuousStore(workspace).due_words())}
     else:

@@ -585,7 +585,7 @@ const itemTypeLabels = {
 
 function itemTypeLabel(itemType) {
   const label = itemTypeLabels[itemType];
-  if (!label) throw new Error(`发现不受支持的周报内容类型：${itemType || "未标注"}`);
+  if (!label) throw new Error(`发现不受支持的简报内容类型：${itemType || "未标注"}`);
   return label;
 }
 
@@ -671,7 +671,7 @@ function renderBriefEdition(brief) {
   const header = document.createElement("div");
   header.className = "brief-edition-header";
   const copy = document.createElement("div");
-  const eyebrow = document.createElement("p"); eyebrow.className = "eyebrow"; eyebrow.textContent = "每周研究简报";
+  const eyebrow = document.createElement("p"); eyebrow.className = "eyebrow"; eyebrow.textContent = "研究简报";
   const title = document.createElement("h2"); title.textContent = brief.headline;
   const summary = document.createElement("p"); summary.textContent = brief.summary;
   copy.append(eyebrow, title, summary);
@@ -702,7 +702,7 @@ function populateBriefSelector(briefs) {
   selector.replaceChildren();
   const allBriefs = document.createElement("option");
   allBriefs.value = "";
-  allBriefs.textContent = `全部周报（${briefs.length}）`;
+  allBriefs.textContent = `全部简报（${briefs.length}）`;
   selector.appendChild(allBriefs);
   for (const brief of briefs) {
     const option = document.createElement("option");
@@ -766,8 +766,8 @@ function renderBriefResults({ scroll = false } = {}) {
   byId("briefNoResults").hidden = briefs.length > 0;
   const range = briefs.length ? `${start + 1}–${start + pageBriefs.length}` : "0";
   const searchCopy = briefSearchQuery ? `，搜索“${briefSearchQuery}”` : "";
-  const selectedCopy = selectedBriefId ? "，已切换到指定周报" : "";
-  setText("briefResultSummary", `共找到 ${briefs.length} 期周报${searchCopy}${selectedCopy}，当前显示 ${range}。`);
+  const selectedCopy = selectedBriefId ? "，已切换到指定简报" : "";
+  setText("briefResultSummary", `共找到 ${briefs.length} 份简报${searchCopy}${selectedCopy}，当前显示 ${range}。`);
   byId("briefClearFilters").hidden = !briefSearchQuery && !selectedBriefId;
   renderBriefMetrics(pageBriefs[0] || null);
   renderBriefPagination(pageCount);
@@ -1246,20 +1246,42 @@ resetThresholdButton.addEventListener("click", () => {
   thresholdSlider.dispatchEvent(new Event("input"));
 });
 
-byId("scheduleForm").addEventListener("submit", async (event) => {
+byId("weeklyScheduleForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = event.submitter;
   button.disabled = true;
-  setText("scheduleStatus", "正在保存设置…");
+  setText("weeklyScheduleStatus", "正在保存每周简报设置…");
   try {
     const payload = {
-      weekly_brief: { enabled: byId("weeklyEnabled").checked, weekday: Number(byId("weeklyWeekday").value), time: byId("weeklyTime").value },
-      daily_review: { enabled: byId("reviewEnabled").checked, time: byId("reviewTime").value, only_when_due: true },
+      section: "weekly_brief",
+      settings: { enabled: byId("weeklyEnabled").checked, weekday: Number(byId("weeklyWeekday").value), time: byId("weeklyTime").value },
     };
     const result = await request("/api/settings", { method: "POST", body: JSON.stringify(payload) });
     appState.settings = result.settings;
-    byId("scheduleStatus").className = "saved";
-    setText("scheduleStatus", "设置已保存。Codex / Work Buddy 正在接管定时任务配置，这个页面可以关闭了。");
+    byId("weeklyScheduleStatus").className = "saved";
+    setText("weeklyScheduleStatus", "每周简报设置已保存。请让 Codex / Work Buddy 根据这一项设置创建或更新定时任务。");
+    button.disabled = false;
+  } catch (error) {
+    button.disabled = false;
+    showError(error);
+  }
+});
+
+byId("reviewScheduleForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.submitter;
+  button.disabled = true;
+  setText("reviewScheduleStatus", "正在保存每日提醒设置…");
+  try {
+    const payload = {
+      section: "daily_review",
+      settings: { enabled: byId("reviewEnabled").checked, time: byId("reviewTime").value, only_when_due: true },
+    };
+    const result = await request("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+    appState.settings = result.settings;
+    byId("reviewScheduleStatus").className = "saved";
+    setText("reviewScheduleStatus", "每日复习提醒设置已保存。请让 Codex / Work Buddy 根据这一项设置创建或更新提醒任务。");
+    button.disabled = false;
   } catch (error) {
     button.disabled = false;
     showError(error);

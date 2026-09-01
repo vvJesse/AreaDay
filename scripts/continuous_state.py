@@ -73,12 +73,12 @@ def default_settings() -> dict[str, Any]:
     return {
         "schema_version": 1,
         "weekly_brief": {
-            "enabled": True,
+            "enabled": False,
             "weekday": 1,
             "time": "09:00",
         },
         "daily_review": {
-            "enabled": True,
+            "enabled": False,
             "time": "20:00",
             "only_when_due": True,
         },
@@ -270,42 +270,29 @@ class ContinuousStore:
         temporary.replace(self.settings_path)
         return validated
 
-    def automation_handoff(self) -> dict[str, Any]:
+    def save_setting(self, section: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if section not in {"weekly_brief", "daily_review"}:
+            raise ValueError("section must be weekly_brief or daily_review")
+        merged = self.get_settings()
+        merged[section] = payload
+        return self.save_settings(merged)
+
+    def automation_handoff(self, section: str | None = None) -> dict[str, Any]:
         settings = self.get_settings()
         workspace = str(self.workspace)
         prefix = f"ResearchRamp · {self.display_name}"
-        return {
-            "schema_version": 2,
-            "domain_id": self.domain_id,
-            "display_name": self.display_name,
-            "workspace": workspace,
-            "daily_discovery": {
-                "enabled": settings["weekly_brief"]["enabled"],
-                "time": "04:00",
-                "notification_policy": "failed_runs_only",
-                "automation_key": f"researchramp:{self.domain_id}:discovery",
-                "name": f"{prefix} · 后台研究发现",
-                "prompt": (
-                    "Use $researchramp in silent discovery mode for the initialized "
-                    f"workspace {workspace}. Fetch metadata for newly published research "
-                    "inside the confirmed scope and update the local candidate pool. Do "
-                    "not write a brief, download full text, or notify the user unless the "
-                    "run fails."
-                ),
-            },
+        automations = {
             "weekly_brief": {
                 **settings["weekly_brief"],
                 "automation_key": f"researchramp:{self.domain_id}:weekly-brief",
                 "name": f"{prefix} · 每周研究简报",
                 "prompt": (
-                    "Use $researchramp in continuing weekly-brief mode for the initialized "
-                    f"workspace {workspace}. Prefer strong newly published papers, then "
-                    "recent unrecommended papers, then older high-value papers. If those "
-                    "lanes still provide fewer than two strong items, use public reports "
-                    "or research updates with readable source text. Prepare 2–5 "
-                    "identity-verified sources, generate source-grounded shadow previews, "
-                    "finalize local derived data, and notify the user. Preserve truthful "
-                    "freshness and content-type labels."
+                    "Use $researchramp to generate one research brief for the initialized "
+                    f"workspace {workspace}. Run the single brief-generation operation "
+                    "through its terminal result: either import one source-grounded brief "
+                    "or report that fewer than two reliable sources were available. Do "
+                    "not stop at discovery, selection, download, preparation, or draft "
+                    "output. Notify the user only after the operation is terminal."
                 ),
             },
             "daily_review": {
@@ -320,6 +307,20 @@ class ContinuousStore:
                 ),
             },
         }
+        result: dict[str, Any] = {
+            "schema_version": 3,
+            "domain_id": self.domain_id,
+            "display_name": self.display_name,
+            "workspace": workspace,
+        }
+        if section is not None:
+            if section not in automations:
+                raise ValueError("section must be weekly_brief or daily_review")
+            result["section"] = section
+            result["automation"] = automations[section]
+        else:
+            result.update(automations)
+        return result
 
     def import_brief(self, payload: dict[str, Any]) -> dict[str, Any]:
         normalized = validate_brief(payload)

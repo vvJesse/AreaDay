@@ -1,21 +1,22 @@
 ---
 name: researchramp
-description: "Build a local research area and personal domain vocabulary, open the ResearchRamp workbench for vocabulary, briefs, review, and domain switching, or configure automatic weekly briefs."
+description: "Build a local research area and personal domain vocabulary, view or generate research briefs, open the ResearchRamp workbench, or schedule weekly briefs and daily review reminders."
 ---
 
 # ResearchRamp
 
-ResearchRamp has three user-facing capability groups:
+ResearchRamp has four user-facing capability groups:
 
 - **首次建立**: establish a confirmed research area and build its personal
   domain vocabulary and terminology from a local research corpus.
 - **日常使用**: open one unified workbench. Inside it, the user can:
   - 查看领域词表；
-  - 查看本周或往期研究简报；
+  - 查看最新或往期研究简报；
   - 复习生词与术语；
   - 自己切换研究领域。
-- **持续更新**: configure automatic weekly research briefs for selected
-  initialized domains.
+- **研究简报**: view existing briefs, generate one brief now, or schedule weekly
+  generation for an initialized domain.
+- **复习提醒**: independently schedule a daily reminder when words or terms are due.
 
 **打开工作台** is the single ordinary entry point for daily use. It does not
 replace the separate product capability to establish a research area and build
@@ -28,7 +29,9 @@ bullet points rather than one compressed paragraph. Use this structure:
 >
 > - **建立研究领域与个人领域词表**：围绕你确认的研究方向收集论文，生成个人化的领域生词和术语。
 > - **打开研究工作台**：在一个界面里查看领域词表和研究简报、复习生词与术语，并自行切换研究领域。
+> - **生成研究简报**：立即围绕选定领域生成并保存一份新的研究简报。
 > - **开启自动每周研究简报**：按照设定的时间，为选定的研究领域持续生成简报。
+> - **设置每日复习提醒**：只在有到期生词或术语时提醒复习。
 
 Keep vocabulary viewing, brief viewing, review, and domain switching grouped as
 things the user does inside the workbench, not separate agent-operated commands.
@@ -128,14 +131,58 @@ approval, run the platform installer yourself and verify it before continuing.
 Do not ask the user to configure Python dependencies manually. Do not read the
 long workflow reference for an ordinary workbench-opening request.
 
-## Automatic weekly briefs
+## Research briefs and reminders
 
-Weekly briefs are scheduled artifacts, not one-off manual reports. If the user
-wants to enable or change them, open the workbench's schedule view and follow
-the scheduling handoff in
-[continuous-workflow.md](references/continuous-workflow.md). With multiple
-domains, schedule each selected domain independently. Do not read the
-continuous workflow for ordinary viewing or review.
+Keep these four requests distinct:
+
+For both immediate brief generation and weekly brief scheduling, resolve the
+domain before doing any work:
+
+- If the user named a registered domain, use it.
+- If the user did not name a domain and exactly one initialized domain is
+  registered, use that domain without asking.
+- If several domains are registered and the user did not name one, ask the user
+  to choose from the registered domains. Do not start generation, save schedule
+  settings, or create a task before the choice is made.
+- If the named domain is not registered, show the registered choices and ask
+  again. Never fall back to the active domain, an open workbench tab, or another
+  Skill instance's registry.
+
+Once a weekly task is created, bind it to the resolved domain ID and workspace;
+scheduled runs do not ask again.
+
+- **View briefs**: use the ordinary workbench fast path with `--view briefs`.
+  Opening the page never starts research or creates a schedule. If no brief
+  exists, tell the user that none has been generated and that Codex / Work Buddy
+  can generate one.
+- **Generate a brief**: read
+  [continuous-workflow.md](references/continuous-workflow.md), then run the
+  single controller below after applying the domain rule above.
+
+  ```bash
+  .venv/bin/python scripts/generate_brief.py run [--domain <domain-id>]
+  ```
+
+  While its `terminal` value is `false`, perform the supplied host-agent
+  `next_action` and immediately run its exact `resume` command. Discovery,
+  selection, download, preparation, and draft writing are never completion
+  points. When it returns `terminal: true` with `generated: true`, open the
+  workbench at `--view briefs`. When it returns `generated: false`, report that
+  no brief was saved and give the controller's reason.
+- **Schedule a weekly brief**: read only the scheduling section of the same
+  reference. Resolve the domain using the same rule, obtain the weekday and
+  time, run `configure_schedule.py weekly`, then create or update exactly the
+  one host scheduled task emitted in its handoff. The task runs the same
+  brief-generation controller. Do not generate a brief immediately unless the
+  user also asked for one.
+- **Schedule a daily review reminder**: obtain the time, run
+  `configure_schedule.py daily`, then create or update exactly the one reminder
+  task emitted in its handoff. It only checks due words and terms. It never
+  generates a brief or changes the weekly task.
+
+Never treat a research brief as necessarily weekly. Repeated scheduling updates
+the task with the same `automation_key`; it must not create duplicates. Do not
+read the continuous workflow for ordinary viewing or review.
 
 All corpora, vocabulary, briefs, settings, and learning records remain in the
 user-confirmed local ResearchRamp directories.

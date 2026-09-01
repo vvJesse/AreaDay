@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from domain_registry import DomainRegistry  # noqa: E402
+from continuous_state import ContinuousStore  # noqa: E402
 from test_domain_isolation import APP, create_completed_workspace  # noqa: E402
 
 
@@ -22,12 +23,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8876)
+    parser.add_argument("--empty-briefs", action="store_true")
     args = parser.parse_args()
 
     fixture_root = Path(tempfile.mkdtemp(prefix="researchramp-ui-fixture-"))
     try:
         alpha = create_completed_workspace(fixture_root, "alpha", "Alpha Research")
         beta = create_completed_workspace(fixture_root, "beta", "Beta Research")
+        if args.empty_briefs:
+            for fixture in (alpha, beta):
+                workspace = fixture[0]
+                with ContinuousStore(workspace).connect() as connection:
+                    connection.execute("DELETE FROM briefs")
         registry_path = fixture_root / "library" / "domains.json"
         registry = DomainRegistry(registry_path)
         registry.register(alpha[0], display_name="Alpha Research", domain_id="alpha")

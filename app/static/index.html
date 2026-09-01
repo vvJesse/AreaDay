@@ -148,23 +148,23 @@
         <div id="briefMetrics" class="metrics"></div>
         <section id="briefExplorer" class="card brief-explorer" hidden>
           <div class="brief-explorer-heading">
-            <div><p class="eyebrow">历史周报</p><h2>搜索或切换到某一期</h2></div>
+            <div><p class="eyebrow">历史简报</p><h2>搜索或切换到某一期</h2></div>
             <p>支持标题、摘要、论文、期刊、推荐理由和词汇的模糊搜索。</p>
           </div>
           <div class="brief-toolbar">
             <label class="brief-search" for="briefSearch"><span>模糊搜索</span><input id="briefSearch" type="search" autocomplete="off" placeholder="例如：implicature、greenwashing、证据不足"></label>
-            <label class="brief-selector" for="briefEditionSelect"><span>切换周报</span><select id="briefEditionSelect"><option value="">全部周报</option></select></label>
+            <label class="brief-selector" for="briefEditionSelect"><span>切换简报</span><select id="briefEditionSelect"><option value="">全部简报</option></select></label>
           </div>
-          <div class="brief-explorer-footer"><p id="briefResultSummary" aria-live="polite">正在整理周报历史。</p><button id="briefClearFilters" class="text-button" type="button" hidden>清除筛选</button></div>
+          <div class="brief-explorer-footer"><p id="briefResultSummary" aria-live="polite">正在整理简报历史。</p><button id="briefClearFilters" class="text-button" type="button" hidden>清除筛选</button></div>
         </section>
         <div id="briefsList" class="brief-list"></div>
-        <section id="briefNoResults" class="card empty-state" hidden><span class="empty-icon">⌕</span><h2>没有找到匹配的周报</h2><p>可以缩短关键词、换一种拼写，或者清除当前周报筛选。</p><button id="briefNoResultsClear" class="secondary-button" type="button">清除筛选</button></section>
-        <nav id="briefPagination" class="card brief-pagination" aria-label="周报分页" hidden>
+        <section id="briefNoResults" class="card empty-state" hidden><span class="empty-icon">⌕</span><h2>没有找到匹配的简报</h2><p>可以缩短关键词、换一种拼写，或者清除当前简报筛选。</p><button id="briefNoResultsClear" class="secondary-button" type="button">清除筛选</button></section>
+        <nav id="briefPagination" class="card brief-pagination" aria-label="简报分页" hidden>
           <button id="briefPreviousPage" type="button">上一页</button>
           <div id="briefPageButtons" class="brief-page-buttons"></div>
           <button id="briefNextPage" type="button">下一页</button>
         </nav>
-        <section id="briefEmpty" class="card empty-state" hidden><span class="empty-icon">⌁</span><h2>第一份研究简报还在路上</h2><p>启用定期服务后，ResearchRamp 会持续追踪你的研究方向；只有取得可读正文并完成来源核对的论文或公开资料才会进入简报。</p><span class="command-pill">在聊天中运行 $researchramp schedule</span></section>
+        <section id="briefEmpty" class="card empty-state" hidden><span class="empty-icon">⌁</span><h2>目前还没有研究简报</h2><p>你还没有生成过任何一份简报。如果需要，可以直接让 Codex / Work Buddy 为当前研究领域生成一份。</p><span class="command-pill">告诉 Codex / Work Buddy：生成一份研究简报</span></section>
       </section>
 
       <section id="paperView" class="app-view" hidden>
@@ -219,12 +219,17 @@
       </section>
 
       <section id="scheduleView" class="app-view" hidden>
-        <div class="result-hero card schedule-hero"><p class="eyebrow">ResearchRamp Schedule</p><h1>安排持续研究支持</h1><p>设置一次即可。后台检索不会单独打扰你，简报和到期复习会按你的节奏出现。</p></div>
-        <form id="scheduleForm" class="schedule-form">
+        <div class="result-hero card schedule-hero"><p class="eyebrow">ResearchRamp Schedule</p><h1>安排持续研究支持</h1><p>每周简报和每日复习提醒相互独立，可以分别设置。</p></div>
+        <div class="schedule-form">
+        <form id="weeklyScheduleForm">
           <section class="card schedule-option"><div class="schedule-option-head"><div><p class="eyebrow">每周一次</p><h2>研究简报</h2><p>只推荐已完成全文下载、论文身份核对和词汇语境提取的论文。</p></div><label class="switch"><input id="weeklyEnabled" type="checkbox" /><span></span></label></div><div class="schedule-fields"><label>星期<select id="weeklyWeekday"><option value="1">星期一</option><option value="2">星期二</option><option value="3">星期三</option><option value="4">星期四</option><option value="5">星期五</option><option value="6">星期六</option><option value="7">星期日</option></select></label><label>提醒时间<input id="weeklyTime" type="time" required /></label></div></section>
-          <section class="card schedule-option"><div class="schedule-option-head"><div><p class="eyebrow">按需提醒</p><h2>每日语言复习</h2><p>只有存在到期生词或术语时才提醒；不会阻止你查看简报或打开论文。</p></div><label class="switch"><input id="reviewEnabled" type="checkbox" /><span></span></label></div><div class="schedule-fields one-field"><label>提醒时间<input id="reviewTime" type="time" required /></label></div></section>
-          <div class="schedule-submit"><p id="scheduleStatus">时间使用这台电脑的本地时区。</p><button class="primary-button" type="submit">保存并启用</button></div>
+          <div class="schedule-submit"><p id="weeklyScheduleStatus">只保存每周简报设置。</p><button class="primary-button" type="submit">保存每周简报</button></div>
         </form>
+        <form id="reviewScheduleForm">
+          <section class="card schedule-option"><div class="schedule-option-head"><div><p class="eyebrow">按需提醒</p><h2>每日语言复习</h2><p>只有存在到期生词或术语时才提醒；不会阻止你查看简报或打开论文。</p></div><label class="switch"><input id="reviewEnabled" type="checkbox" /><span></span></label></div><div class="schedule-fields one-field"><label>提醒时间<input id="reviewTime" type="time" required /></label></div></section>
+          <div class="schedule-submit"><p id="reviewScheduleStatus">只保存每日复习提醒设置。</p><button class="primary-button" type="submit">保存每日提醒</button></div>
+        </form>
+        </div>
       </section>
 
       <section id="errorView" class="card error" hidden><h1>页面没有正常载入</h1><p id="errorMessage"></p></section>

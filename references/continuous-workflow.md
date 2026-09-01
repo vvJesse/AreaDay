@@ -1,28 +1,35 @@
-# Continuing ResearchRamp workflow
+# Research brief generation and scheduling
 
-Read this reference only for `schedule` mode or an automatic scheduled weekly
-run. Initialization remains governed by `mini-corpus-workflow.md`. Do not use
-this internal workflow to invent a public one-off `generate a weekly brief now`
-capability.
+Read this reference when the user asks to generate a research brief now, set or
+change weekly brief generation, or set or change a daily review reminder.
+Initialization remains governed by `full-workflow.md`. Viewing existing briefs
+does not require this reference and never starts generation.
 
 ## Product routing
 
-- `init`: build the confirmed local mini corpus and complete personal vocabulary
-  calibration.
-- `schedule`: launch the local schedule page, wait for a valid save, then create
-  or update the host platform's silent discovery, weekly-brief, and due-review
-  automations from the emitted handoff. Never create duplicate automations.
+Before immediate generation or weekly scheduling, apply the shared domain
+resolution rule in `SKILL.md`. Domain resolution must finish before discovery,
+settings writes, or task creation. A weekly task is permanently handed the
+resolved domain ID and workspace, so its later runs never infer or reselect a
+domain.
 
-The user-facing actions are **开启或修改每周研究简报**, **查看本周简报**,
-**查看或搜索往期简报**, and **复习生词与术语**. Only the first action enters
-this schedule workflow. Viewing actions open existing artifacts and never start
-a research run.
+- **查看简报** opens the workbench's briefs view. It does not generate data or
+  create a scheduled task.
+- **生成简报** runs one complete generation operation and saves one new brief.
+- **设置每周简报** creates or updates one weekly task that runs that same
+  generation operation.
+- **设置每日复习提醒** creates or updates one independent due-review task.
 
 The deterministic scripts also expose internal discovery, preparation,
 finalization, and due-count operations. Do not present these as separate product
 commands.
 
-## Scheduled weekly run
+## One brief-generation operation
+
+Run the operation only through `scripts/generate_brief.py`. The controller owns
+the operation until it returns a terminal result. Whenever it requests a
+current-host-agent action, write the requested output and immediately run its
+exact resume command. Do not stop at any internal checkpoint.
 
 1. Run `continuous_workflow.py discover` for the initialized workspace. This
    retrieves metadata only, records provider outcomes, and updates the durable
@@ -37,11 +44,10 @@ commands.
    as they age.
 2. Review those titles and abstracts as the current host agent. Research
    relevance and value are the first decision; recency breaks ties between
-   similarly useful papers. If fewer
-   than two strong papers remain, rerun discovery with `--include-classics`.
-   This separately searches the older date range already confirmed during init
-   and labels eligible older results `classic_paper`; it does not relabel them
-   as new.
+   similarly useful papers. The controller supplies the new, recent, and
+   confirmed classic lanes together so this review happens once. Prefer strong
+   new and recent work; use older classic papers only when those lanes remain
+   insufficient. Classic papers keep the `classic_paper` label.
 3. If the new, recent, and classic lanes together still contain fewer than two
    strong items, use the host's normal web research capability to find directly
    readable public reports or research updates. Use only a real public page or
@@ -80,7 +86,7 @@ the selection file must not relabel paper freshness.
    text match the selected source, extracts full text locally, and compares that
    text with the user's personalized vocabulary map. Read the produced
    `agent-brief-input.json` and its temporary text paths.
-6. As Codex / Work Buddy, write all research-value explanations, the weekly
+6. As Codex / Work Buddy, write all research-value explanations, the brief
    summary, contextual bilingual word meanings, and shadow previews. Do not call another
    model API. Produce exactly the prepared sources. Preserve truthful types:
    `new_paper`, `recent_paper`, `classic_paper`, `public_report`, or
@@ -96,10 +102,10 @@ the selection file must not relabel paper freshness.
 
 ```json
 {
-  "brief_id": "2026-W35-example-domain",
+  "brief_id": "brief-20260901T103000Z-a1b2c3d4",
   "period_start": "2026-08-24",
   "period_end": "2026-08-30",
-  "headline": "This week's plain-language headline",
+  "headline": "A plain-language headline for this brief",
   "summary": "A short overall report that helps the user choose.",
   "items": [
     {
@@ -144,26 +150,27 @@ unconfirmed. The full domain terminology asset remains available through a
 20-item paginated library with fuzzy search and status filters; it is not itself
 an automatic review queue.
 
-## Schedule page handoff
+## Scheduled tasks
 
-Launch the unified local application in `schedule` mode with
-`--exit-on-settings-save`. After the user saves, the process emits an automation
-handoff containing the domain ID, local workspace, names, prompts, weekday, and
-time. The user chooses the domain while configuring the schedule; a scheduled
-run never asks again which domain to use. For multiple selected domains,
-configure one independent schedule and automation set per domain, even when the
-user chooses the same weekday and time.
-Create or update the three host automations from that handoff:
+Resolve the domain and obtain the schedule before a task is created. Use
+`scripts/configure_schedule.py` to save only the requested preference and emit
+exactly one automation handoff:
 
-- The silent daily discovery job updates metadata and the local candidate pool;
-  it scans the new and recent paper lanes, does not download full text, and does
-  not notify unless the run fails.
-- The weekly job runs this full weekly workflow and delivers the result.
-- The daily job runs `due-count`; it notifies only when one or more learning
-  items (words or terms) are due and otherwise finishes silently.
+```bash
+.venv/bin/python scripts/configure_schedule.py weekly --weekday <1-7> --time <HH:MM> [--domain <domain-id>]
+.venv/bin/python scripts/configure_schedule.py daily --time <HH:MM> [--domain <domain-id>]
+```
 
-The web page stores preferences only. It does not pretend to have registered a
-host automation by itself.
+Create or update the single host task in that handoff. The weekly task runs the
+complete brief-generation operation above. The daily task runs `due-count` and
+notifies only when one or more words or terms are due. The two preferences and
+tasks are independent. Do not create a separate background-discovery task, do
+not change the other schedule, and do not create duplicate tasks with the same
+`automation_key`.
+
+The workbench schedule page follows the same separation: each form saves one
+preference and emits one handoff. Saving a preference is not itself proof that
+the host task was successfully registered.
 
 ## Retention and cleanup invariants
 

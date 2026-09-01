@@ -131,6 +131,38 @@ class ContinuousStateTests(unittest.TestCase):
         self.assertIn("Domain Alpha", handoff["daily_review"]["name"])
         self.assertTrue(handoff["daily_review"]["only_when_due"])
 
+    def test_weekly_and_daily_schedules_are_saved_and_handed_off_independently(self) -> None:
+        defaults = self.store.get_settings()
+        self.assertFalse(defaults["weekly_brief"]["enabled"])
+        self.assertFalse(defaults["daily_review"]["enabled"])
+
+        weekly = self.store.save_setting(
+            "weekly_brief", {"enabled": True, "weekday": 2, "time": "08:15"}
+        )
+        self.assertTrue(weekly["weekly_brief"]["enabled"])
+        self.assertFalse(weekly["daily_review"]["enabled"])
+        weekly_handoff = self.store.automation_handoff("weekly_brief")
+        self.assertEqual(weekly_handoff["section"], "weekly_brief")
+        self.assertEqual(
+            weekly_handoff["automation"]["automation_key"],
+            "researchramp:alpha:weekly-brief",
+        )
+        self.assertNotIn("daily_discovery", weekly_handoff)
+        self.assertNotIn("daily_review", weekly_handoff)
+
+        daily = self.store.save_setting(
+            "daily_review", {"enabled": True, "time": "19:20"}
+        )
+        self.assertEqual(daily["weekly_brief"]["time"], "08:15")
+        self.assertTrue(daily["daily_review"]["enabled"])
+        daily_handoff = self.store.automation_handoff("daily_review")
+        self.assertEqual(daily_handoff["section"], "daily_review")
+        self.assertEqual(
+            daily_handoff["automation"]["automation_key"],
+            "researchramp:alpha:daily-review",
+        )
+        self.assertNotIn("weekly_brief", daily_handoff)
+
     def test_unrecommended_candidates_remain_until_matching_brief_import(self) -> None:
         candidates = [
             {"candidate_id": "paper-a", "title": "A", "doi": "10.1/a"},
@@ -201,6 +233,22 @@ class ContinuousStateTests(unittest.TestCase):
         output.write_text(json.dumps(changed), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "changed its source source_url"):
+            finalize(workspace, output)
+        self.assertTrue(run_dir.is_dir())
+
+    def test_finalize_rejects_controller_metadata_changes(self) -> None:
+        workspace = self.workspace / "changed-controller-metadata"
+        ContinuousStore(workspace)
+        payload = load_fixture()
+        run_dir, output = write_prepared_run(workspace, "metadata-run", payload)
+        packet_path = run_dir / "agent-brief-input.json"
+        packet = json.loads(packet_path.read_text(encoding="utf-8"))
+        packet["brief_id"] = "controller-assigned-id"
+        packet["period_start"] = payload["period_start"]
+        packet["period_end"] = payload["period_end"]
+        packet_path.write_text(json.dumps(packet), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "controller-assigned brief_id"):
             finalize(workspace, output)
         self.assertTrue(run_dir.is_dir())
 

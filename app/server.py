@@ -927,6 +927,7 @@ class AppHandler(BaseHTTPRequestHandler):
     exit_on_settings_save: bool = False
     settings_saved: bool = False
     settings_saved_domain_id: str | None = None
+    settings_saved_section: str | None = None
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -1186,10 +1187,19 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/settings":
                 store = self.runtime.require_continuous(context)
-                settings = store.save_settings(body)
+                section = str(body.get("section") or "").strip()
+                if section:
+                    section_settings = body.get("settings")
+                    if not isinstance(section_settings, dict):
+                        raise ValueError("settings must be an object")
+                    settings = store.save_setting(section, section_settings)
+                    handoff = store.automation_handoff(section)
+                else:
+                    settings = store.save_settings(body)
+                    handoff = store.automation_handoff()
                 type(self).settings_saved = True
                 type(self).settings_saved_domain_id = context.domain_id
-                handoff = store.automation_handoff()
+                type(self).settings_saved_section = section or None
                 self._send_api_json(
                     {"settings": settings, "handoff": handoff, "saved": True},
                     domain_id=context.domain_id,
@@ -1540,6 +1550,7 @@ def main() -> None:
     AppHandler.exit_on_settings_save = args.exit_on_settings_save
     AppHandler.settings_saved = False
     AppHandler.settings_saved_domain_id = None
+    AppHandler.settings_saved_section = None
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     url = f"http://{args.host}:{args.port}"
     selected = runtime.context(runtime.initial_domain_id)
@@ -1568,7 +1579,9 @@ def main() -> None:
                         "status": "saved" if AppHandler.settings_saved else "closed_without_save",
                         "domain_id": saved_context.domain_id,
                         "settings_path": str(store.settings_path),
-                        "automation_handoff": store.automation_handoff(),
+                        "automation_handoff": store.automation_handoff(
+                            AppHandler.settings_saved_section
+                        ),
                     },
                     ensure_ascii=False,
                 )
