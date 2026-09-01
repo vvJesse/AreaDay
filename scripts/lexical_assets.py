@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import math
 import re
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from typing import Any, Iterable
 
 
 SHARED_TERMINOLOGY_MIN_DOCUMENT_SHARE = 0.10
+SPACY_PIPE_BATCH_SIZE = 4
 
 
 def select_shared_terminology_candidates(
@@ -163,55 +164,91 @@ def build_lexical_assets(
     acronym_expansions: dict[str, Counter[str]] = defaultdict(Counter)
     total_processed_tokens = 0
 
-    for document in documents:
-        work_id = str(document["openalex_id"])
-        document_lemmas: Counter[str] = Counter()
-        document_terms: Counter[str] = Counter()
-        for raw_chunk in text_chunks(str(document.get("clean_text") or "")):
-            parsed = nlp(raw_chunk)
-            total_processed_tokens += len(parsed)
-            for token in parsed:
-                if (
-                    token.pos_ not in VOCAB_POS
-                    or token.is_stop
-                    or not token.is_alpha
-                    or token.like_num
-                ):
-                    continue
-                lemma = (token.lemma_ or token.text).casefold().strip("'-")
-                if len(lemma) < 2 or not LEMMA_RE.fullmatch(lemma):
-                    continue
-                document_lemmas[lemma] += 1
-                lemma_surfaces[lemma][token.text] += 1
-                lemma_pos[lemma][token.pos_] += 1
+    document_work_ids = [str(document["openalex_id"]) for document in documents]
+    document_lemma_counts = [Counter() for _ in documents]
+    document_term_counts = [Counter() for _ in documents]
 
-            for sentence in parsed.sents:
-                sentence_text = _sentence_text(sentence)
-                sentence_lemmas = {
-                    (token.lemma_ or token.text).casefold().strip("'-")
-                    for token in sentence
-                    if token.pos_ in VOCAB_POS
-                    and not token.is_stop
-                    and token.is_alpha
-                    and not token.like_num
-                }
-                for lemma in sentence_lemmas:
-                    if LEMMA_RE.fullmatch(lemma):
-                        _add_example(lemma_examples, lemma, sentence_text, work_id)
+    pending_document_indexes: deque[int] = deque()
 
-            for chunk in parsed.noun_chunks:
-                normalized = _term_from_span(chunk)
-                if normalized is None:
-                    continue
-                canonical, surface = normalized
-                document_terms[canonical] += 1
-                term_surfaces[canonical][surface] += 1
-                _add_example(term_examples, canonical, _sentence_text(chunk.sent), work_id)
+    def chunk_stream() -> Iterable[str]:
+        for document_index, document in enumerate(documents):
+            for raw_chunk in text_chunks(str(document.get("clean_text") or "")):
+                for expansion, acronym in ACRONYM_RE.findall(raw_chunk):
+                    cleaned_expansion = re.sub(r"\s+", " ", expansion).strip().casefold()
+                    acronym_expansions[acronym][cleaned_expansion] += 1
+                pending_document_indexes.append(document_index)
+                yield raw_chunk
 
-            for expansion, acronym in ACRONYM_RE.findall(raw_chunk):
-                cleaned_expansion = re.sub(r"\s+", " ", expansion).strip().casefold()
-                acronym_expansions[acronym][cleaned_expansion] += 1
+    parsed_chunks = nlp.pipe(
+        chunk_stream(),
+        batch_size=SPACY_PIPE_BATCH_SIZE,
+        n_process=1,
+    )
+    for parsed in parsed_chunks:
+        document_index = pending_document_indexes.popleft()
+        work_id = document_work_ids[document_index]
+        document_lemmas = document_lemma_counts[document_index]
+        document_terms = document_term_counts[document_index]
+        total_processed_tokens += len(parsed)
+        for token in parsed:
+            if (
+                token.pos_ not in VOCAB_POS
+                or token.is_stop
+                or not token.is_alpha
+                or token.like_num
+            ):
+                continue
+            lemma = (token.lemma_ or token.text).casefold().strip("'-")
+            if len(lemma) < 2 or not LEMMA_RE.fullmatch(lemma):
+                continue
+            document_lemmas[lemma] += 1
+            lemma_surfaces[lemma][token.text] += 1
+            lemma_pos[lemma][token.pos_] += 1
 
+        sentence_text_cache: dict[tuple[int, int], str] = {}
+
+        def cached_sentence_text(sentence: Any) -> str:
+            key = (
+                int(getattr(sentence, "start", id(sentence))),
+                int(getattr(sentence, "end", id(sentence))),
+            )
+            if key not in sentence_text_cache:
+                sentence_text_cache[key] = _sentence_text(sentence)
+            return sentence_text_cache[key]
+
+        for sentence in parsed.sents:
+            sentence_text = cached_sentence_text(sentence)
+            sentence_lemmas = {
+                (token.lemma_ or token.text).casefold().strip("'-")
+                for token in sentence
+                if token.pos_ in VOCAB_POS
+                and not token.is_stop
+                and token.is_alpha
+                and not token.like_num
+            }
+            for lemma in sentence_lemmas:
+                if LEMMA_RE.fullmatch(lemma):
+                    _add_example(lemma_examples, lemma, sentence_text, work_id)
+
+        for chunk in parsed.noun_chunks:
+            normalized = _term_from_span(chunk)
+            if normalized is None:
+                continue
+            canonical, surface = normalized
+            document_terms[canonical] += 1
+            term_surfaces[canonical][surface] += 1
+            _add_example(
+                term_examples,
+                canonical,
+                cached_sentence_text(chunk.sent),
+                work_id,
+            )
+
+    for work_id, document_lemmas, document_terms in zip(
+        document_work_ids,
+        document_lemma_counts,
+        document_term_counts,
+    ):
         lemma_by_document[work_id] = document_lemmas
         term_by_document[work_id] = document_terms
 

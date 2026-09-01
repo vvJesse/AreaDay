@@ -89,17 +89,44 @@ http://127.0.0.1:8765/?domain=<domain-id>#<view>
 ## First-time initialization
 
 If no registered domain exists, explain that the first research area must be
-initialized before the workbench can open. For `$researchramp init` or an
-equivalent request, read [full-workflow.md](references/full-workflow.md) and
-follow its initialization sections. As soon as the user has confirmed the
-research area and its exact workspace path, save the confirmed profile there
-and immediately register that absolute path in this Skill instance's registry.
-Do this before discovery, downloads, vocabulary generation, or calibration; the
-first corpus command also verifies the same registration idempotently before it
-does any research work. Calibration writes only personal-vocabulary artifacts
-inside the registered workspace and must never create, remove, or roll back a
-domain registration. Do not ask the user to run the registration command. Do
-not read that long reference for an ordinary workbench-opening request.
+initialized before the workbench can open. Treat any request to establish a
+research area or build or rebuild its personal domain vocabulary—including
+“构建词表”—as equivalent to `$researchramp init`: read
+[full-workflow.md](references/full-workflow.md) completely.
+
+Treat everything after the user confirms the profile and workspace—discovery,
+candidate review, PDF acquisition, corpus analysis, orthography review,
+terminology review, joint finalization, and verified workbench startup—as **one
+unattended preparation operation**. Run it only through
+`scripts/initialize.py`; do not present its internal checkpoints as independent
+stages and do not use the helper commands as the normal workflow.
+
+The controller's `status.json` is authoritative. While `terminal` is `false`,
+the current task must continue:
+
+- wait on the same live command when it is still running;
+- perform any `next_action` whose actor is `current_host_agent`, write the exact
+  requested output, and immediately run the supplied `resume` command;
+- diagnose a real failure from preserved artifacts and resume the same
+  operation.
+
+An internal command exit, a candidate count, downloaded PDFs, completed corpus
+analysis, a vocabulary file, or a terminology count is never a reason to stop.
+The controller must run `finalize_domain_assets.py`, which finalizes and loads
+both vocabulary and terminology in one invocation. It may start calibration
+only after that invocation succeeds.
+The preparation operation may hand control to the user only when the controller
+returns `terminal: true`, `checkpoint: calibration_service_ready`, and a live
+URL whose service record says both `vocabulary_ready` and
+`terminology_ready`. Open that exact URL and ask the user to answer the 30
+calibration questions. Do not claim that full initialization is complete until
+those answers and the personalized export have been verified.
+
+Start by checking the Skill-local runtime. If dependencies are missing,
+proactively request the required network and disk-write permission; after
+approval, run the platform installer yourself and verify it before continuing.
+Do not ask the user to configure Python dependencies manually. Do not read the
+long workflow reference for an ordinary workbench-opening request.
 
 ## Automatic weekly briefs
 

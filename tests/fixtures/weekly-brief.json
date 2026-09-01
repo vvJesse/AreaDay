@@ -20,29 +20,41 @@
         {
           "lemma": "alpha",
           "meaning": "测试领域 Alpha 中使用的合成术语",
+          "meaning_zh": "测试领域 Alpha 中使用的合成术语",
+          "meaning_en": "A synthetic term used in the Alpha test domain.",
           "part_of_speech": "noun",
           "context": "This synthetic source sentence contains the alpha term.",
-          "kind": "terminology"
+          "kind": "terminology",
+          "sense_key": "alpha-test-term",
+          "evidence_context_id": "fixture-paper-alpha:alpha"
         },
         {
           "lemma": "isolation",
           "meaning": "不同数据空间彼此分离",
+          "meaning_zh": "不同数据空间彼此分离",
+          "meaning_en": "The separation of distinct data spaces.",
           "part_of_speech": "noun",
           "context": "The fixture verifies isolation between two local domains.",
-          "kind": "vocabulary"
+          "kind": "vocabulary",
+          "sense_key": "data-space-isolation",
+          "evidence_context_id": "fixture-paper-alpha:isolation"
         },
         {
           "lemma": "provenance",
           "meaning": "内容及其来源之间可验证的对应关系",
+          "meaning_zh": "内容及其来源之间可验证的对应关系",
+          "meaning_en": "A verifiable link between content and its source.",
           "part_of_speech": "noun",
           "context": "Every fixture context has explicit provenance within its source packet.",
-          "kind": "vocabulary"
+          "kind": "vocabulary",
+          "sense_key": "content-source-provenance",
+          "evidence_context_id": "fixture-paper-alpha:provenance"
         }
       ]
     },
     {
       "item_id": "fixture-guide-alpha",
-      "item_type": "guide",
+      "item_type": "public_report",
       "title": "TEST FIXTURE — Guide Alpha",
       "source_url": "https://example.invalid/researchramp/guide-alpha",
       "publication_date": "2026-08-28",

@@ -13,7 +13,7 @@ from pathlib import Path
 
 IDENTITY_PATH = "/api/identity"
 SERVICE = "researchramp-workbench"
-IDENTITY_VERSION = 1
+IDENTITY_VERSION = 2
 
 
 def parse_args() -> argparse.Namespace:

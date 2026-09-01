@@ -78,6 +78,22 @@ def create_completed_workspace(root: Path, domain_id: str, label: str) -> tuple:
         ),
         encoding="utf-8",
     )
+    (analysis / "papers.jsonl").write_text("", encoding="utf-8")
+    (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
+    (analysis / "terminology-explanations.json").write_text("{}\n", encoding="utf-8")
+    (analysis / "host-review-summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "reviewer": "current-host-agent",
+                "review_passes": 1,
+                "terminology_candidate_count": 0,
+                "selected_terminology_count": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     words = [make_word(index) for index in range(30)]
     state = analysis / "vocabulary-calibration-session.json"
     session = APP.CalibrationSession(words, state, label)
@@ -148,8 +164,11 @@ class DomainIsolationTests(unittest.TestCase):
         alpha_store = self.runtime.context("alpha").continuous_store
         beta_store = self.runtime.context("beta").continuous_store
         assert alpha_store is not None and beta_store is not None
-        alpha_store.start_preheat("fixture-paper-alpha")
-        alpha_store.mark_known("alpha")
+        paper = alpha_store.start_preheat("fixture-paper-alpha")
+        alpha_word = next(
+            item for item in paper["vocabulary"] if item["lemma"] == "alpha"
+        )
+        alpha_store.mark_item_mastered(alpha_word["item_id"])
         alpha_store.save_settings(
             {
                 "weekly_brief": {"enabled": True, "weekday": 3, "time": "08:30"},
@@ -179,6 +198,8 @@ class DomainIsolationTests(unittest.TestCase):
         self.assertIn("Beta Research", beta["briefs"][0]["items"][0]["title"])
         self.assertTrue(alpha["domain_switching"])
         self.assertEqual(len(alpha["domains"]), 2)
+        self.assertEqual(alpha["terminology"], {"count": 0, "terms": []})
+        self.assertEqual(beta["terminology"], {"count": 0, "terms": []})
 
     def test_standalone_content_fingerprint_changes_when_file_is_replaced(self) -> None:
         vocabulary = self.root / "standalone.tsv"
@@ -272,13 +293,13 @@ class DomainRoutingHttpTests(unittest.TestCase):
         status, alpha = self.request("GET", "/api/app-state?domain_id=alpha")
         self.assertEqual(status, 200)
         self.assertEqual(alpha["domain_id"], "alpha")
-        self.assertEqual(alpha["api_version"], 2)
+        self.assertEqual(alpha["api_version"], APP.APP_API_VERSION)
 
         status, _ = self.request(
             "POST",
             "/api/preheat/start",
             {"paper_id": "fixture-paper-alpha"},
-            {"X-ResearchRamp-API-Version": "2"},
+            {"X-ResearchRamp-API-Version": str(APP.APP_API_VERSION)},
         )
         self.assertEqual(status, 400)
 
@@ -287,7 +308,7 @@ class DomainRoutingHttpTests(unittest.TestCase):
             "/api/preheat/start?domain_id=alpha",
             {"paper_id": "fixture-paper-alpha"},
             {
-                "X-ResearchRamp-API-Version": "2",
+                "X-ResearchRamp-API-Version": str(APP.APP_API_VERSION),
                 "X-ResearchRamp-Domain": "alpha",
             },
         )
@@ -300,7 +321,7 @@ class DomainRoutingHttpTests(unittest.TestCase):
             "/api/vocabulary/known?domain_id=alpha",
             {"lemma": "alpha"},
             {
-                "X-ResearchRamp-API-Version": "2",
+                "X-ResearchRamp-API-Version": str(APP.APP_API_VERSION),
                 "X-ResearchRamp-Domain": "beta",
             },
         )
@@ -311,7 +332,7 @@ class DomainRoutingHttpTests(unittest.TestCase):
             "/api/vocabulary/known?domain_id=unknown",
             {"lemma": "alpha"},
             {
-                "X-ResearchRamp-API-Version": "2",
+                "X-ResearchRamp-API-Version": str(APP.APP_API_VERSION),
                 "X-ResearchRamp-Domain": "unknown",
             },
         )

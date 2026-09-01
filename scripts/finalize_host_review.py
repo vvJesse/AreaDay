@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and merge a host agent's one-pass lexical review."""
+"""Validate and persist a host agent's one-pass terminology review."""
 
 from __future__ import annotations
 
@@ -26,148 +26,66 @@ def write_flat_tsv(path: Path, rows: list[dict[str, Any]], fields: list[str]) ->
             row = {field: item.get(field) for field in fields}
             for field, value in row.items():
                 if isinstance(value, (list, dict)):
-                    row[field] = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+                    row[field] = json.dumps(
+                        value, ensure_ascii=False, separators=(",", ":")
+                    )
             writer.writerow(row)
     temporary.replace(path)
 
 
-def merge_selection(
-    candidates: list[dict[str, Any]],
-    selections: dict[str, float],
-    key: str,
-    classification: str,
+def merge_terminology_selection(
+    candidates: list[dict[str, Any]], selections: Any
 ) -> list[dict[str, Any]]:
-    candidate_by_key = {str(item[key]): item for item in candidates}
-    missing = sorted(set(selections) - set(candidate_by_key))
+    if not isinstance(selections, dict):
+        raise ValueError("Host review must include a terminology object")
+
+    candidate_by_term = {str(item["term"]): item for item in candidates}
+    missing = sorted(set(selections) - set(candidate_by_term))
     if missing:
-        raise ValueError(f"Host review contains unknown {key} values: {missing}")
-    merged: list[dict[str, Any]] = []
+        raise ValueError(f"Host review contains unknown term values: {missing}")
+
+    confidences: dict[str, float] = {}
+    for term, raw_confidence in selections.items():
+        if isinstance(raw_confidence, bool):
+            raise ValueError(f"Terminology confidence must be numeric: {term}")
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Terminology confidence must be numeric: {term}"
+            ) from error
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"Terminology confidence must be between 0 and 1: {term}")
+        confidences[str(term)] = confidence
+
+    selected: list[dict[str, Any]] = []
     for candidate in candidates:
-        candidate_key = str(candidate[key])
-        if candidate_key not in selections:
+        term = str(candidate["term"])
+        if term not in confidences:
             continue
         record = dict(candidate)
-        record["host_review_classification"] = classification
-        record["host_review_confidence"] = float(selections[candidate_key])
-        merged.append(record)
-    return merged
+        record["host_review_classification"] = "domain-term"
+        record["host_review_confidence"] = confidences[term]
+        selected.append(record)
+    return selected
 
 
-def markdown_cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
-
-
-def write_review_markdown(
-    path: Path,
-    stats: dict[str, Any],
-    paper_decisions: list[dict[str, Any]],
-    vocabulary: list[dict[str, Any]],
-    terminology: list[dict[str, Any]],
-) -> None:
-    lines = [
-        "# ResearchRamp lexical maps — first pass for review",
-        "",
-        "This file presents the first generated pass without post-hoc threshold tuning.",
-        "",
-        f"- Downloaded and extracted PDFs: {stats['analyzed_pdf_count']}",
-        f"- Included in full-text lexical statistics: {stats['included_paper_count']}",
-        f"- Duplicate versions excluded: {stats['duplicate_paper_count']}",
-        f"- Extreme low-relevance papers excluded: {stats['low_relevance_paper_count']}",
-        f"- Selected vocabulary entries: {len(vocabulary)}",
-        f"- Selected terminology entries: {len(terminology)}",
-        "",
-        "## Papers not counted in the lexical statistics",
-        "",
-        "| Decision | Title | Relevance | Reason |",
-        "| --- | --- | ---: | --- |",
-    ]
-    for paper in paper_decisions:
-        if paper.get("analysis_decision") == "include":
-            continue
-        lines.append(
-            "| {decision} | {title} | {score} | {reason} |".format(
-                decision=paper.get("analysis_decision", ""),
-                title=markdown_cell(str(paper.get("title") or "")),
-                score=paper.get("relevance_score", ""),
-                reason=markdown_cell("; ".join(paper.get("analysis_reasons") or [])),
-            )
-        )
-
-    lines.extend(
-        [
-            "",
-            "## First Vocabulary Map",
-            "",
-            "| Lemma | POS | Papers | Count | Dispersion | Common surface forms |",
-            "| --- | --- | ---: | ---: | ---: | --- |",
-        ]
-    )
-    for item in vocabulary:
-        surfaces = ", ".join(
-            str(record["form"]) for record in item.get("surface_forms", [])[:4]
-        )
-        lines.append(
-            f"| {markdown_cell(item['lemma'])} | {item['part_of_speech']} | "
-            f"{item['document_count']} | {item['total_count']} | {item['dispersion']} | "
-            f"{markdown_cell(surfaces)} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## First Terminology Map",
-            "",
-            "| Term | Papers | Count | Representative corpus sentence |",
-            "| --- | ---: | ---: | --- |",
-        ]
-    )
-    for item in terminology:
-        examples = item.get("representative_sentences") or []
-        example = str(examples[0].get("sentence") or "") if examples else ""
-        if len(example) > 260:
-            example = example[:257].rstrip() + "..."
-        lines.append(
-            f"| {markdown_cell(item['term'])} | {item['document_count']} | "
-            f"{item['total_count']} | {markdown_cell(example)} |"
-        )
-    lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--workspace", type=Path, required=True)
-    parser.add_argument("--selection", type=Path, required=True)
-    args = parser.parse_args()
-
-    analysis_dir = args.workspace.resolve() / "analysis"
-    selection = read_json(args.selection)
-    vocabulary = read_jsonl(analysis_dir / "vocabulary-map.jsonl")
-    terminology = read_jsonl(analysis_dir / "terminology-candidates.jsonl")
-    stats = read_json(analysis_dir / "corpus-stats.json")
-    paper_decisions = read_jsonl(analysis_dir / "paper-decisions.jsonl")
-    selected_vocabulary = merge_selection(
-        vocabulary,
-        selection["vocabulary"],
-        "lemma",
-        "domain-vocabulary",
-    )
-    selected_terminology = merge_selection(
-        terminology,
-        selection["terminology"],
-        "term",
-        "domain-term",
-    )
-    explanations = selection.get("terminology_explanations")
+def normalize_explanations(
+    selected_terminology: list[dict[str, Any]], explanations: Any
+) -> dict[str, dict[str, str]]:
     if not isinstance(explanations, dict):
         raise ValueError("Host review must include terminology_explanations")
-    selected_terms = {str(item["term"]).strip().casefold() for item in selected_terminology}
+
+    selected_terms = {
+        str(item["term"]).strip().casefold() for item in selected_terminology
+    }
     explanation_terms = {str(term).strip().casefold() for term in explanations}
     if selected_terms != explanation_terms:
         raise ValueError(
             "terminology_explanations must contain exactly the selected terminology entries"
         )
-    normalized_explanations: dict[str, dict[str, str]] = {}
+
+    normalized: dict[str, dict[str, str]] = {}
     for raw_term, raw_explanation in explanations.items():
         term = str(raw_term).strip().casefold()
         if not isinstance(raw_explanation, dict):
@@ -176,42 +94,71 @@ def main() -> int:
             "meaning_en": str(raw_explanation.get("meaning_en") or "").strip(),
             "meaning_zh": str(raw_explanation.get("meaning_zh") or "").strip(),
             "concept_role": str(raw_explanation.get("concept_role") or "").strip(),
-            "sense_key": str(raw_explanation.get("sense_key") or term).strip(),
+            "sense_key": str(raw_explanation.get("sense_key") or "").strip(),
         }
-        if not record["meaning_en"] or not record["meaning_zh"] or not record["concept_role"]:
+        if not all(record.values()):
             raise ValueError(f"terminology explanation is incomplete: {term}")
-        normalized_explanations[term] = record
+        normalized[term] = record
+    return normalized
 
-    write_jsonl(analysis_dir / "first-vocabulary-map.jsonl", selected_vocabulary)
+
+def validate_review_identity(selection: Any) -> str:
+    if (
+        not isinstance(selection, dict)
+        or isinstance(selection.get("schema_version"), bool)
+        or selection.get("schema_version") != 1
+    ):
+        raise ValueError("Host terminology review must use schema_version 1")
+    reviewer = selection.get("reviewer")
+    if reviewer != "current-host-agent":
+        raise ValueError("Host terminology review reviewer must be current-host-agent")
+    return reviewer
+
+
+def validate_selected_evidence(
+    selected_terminology: list[dict[str, Any]], papers: list[dict[str, Any]]
+) -> None:
+    paper_ids = {
+        str(item.get("openalex_id") or "").strip()
+        for item in papers
+        if isinstance(item, dict) and str(item.get("openalex_id") or "").strip()
+    }
+    for item in selected_terminology:
+        term = str(item.get("term") or "").strip()
+        source_papers = {
+            str(paper_id).strip()
+            for paper_id in item.get("source_papers") or []
+            if str(paper_id).strip()
+        }
+        has_loadable_evidence = any(
+            str(example.get("openalex_id") or "").strip() in paper_ids
+            and str(example.get("openalex_id") or "").strip() in source_papers
+            and bool(str(example.get("sentence") or "").strip())
+            for example in item.get("representative_sentences") or []
+            if isinstance(example, dict)
+        )
+        if not has_loadable_evidence:
+            raise ValueError(
+                f"selected terminology has no loadable paper evidence: {term}"
+            )
+
+
+def finalize_review(workspace: Path, selection_path: Path) -> dict[str, int]:
+    analysis_dir = workspace.resolve() / "analysis"
+    terminology = read_jsonl(analysis_dir / "terminology-candidates.jsonl")
+    papers = read_jsonl(analysis_dir / "papers.jsonl")
+    selection = read_json(selection_path.resolve())
+    reviewer = validate_review_identity(selection)
+    selected_terminology = merge_terminology_selection(
+        terminology, selection.get("terminology")
+    )
+    explanations = normalize_explanations(
+        selected_terminology, selection.get("terminology_explanations")
+    )
+    validate_selected_evidence(selected_terminology, papers)
+
     write_jsonl(analysis_dir / "first-terminology-map.jsonl", selected_terminology)
-    write_json(
-        analysis_dir / "terminology-explanations.json", normalized_explanations
-    )
-    write_flat_tsv(
-        analysis_dir / "first-vocabulary-map.tsv",
-        selected_vocabulary,
-        [
-            "lemma",
-            "part_of_speech",
-            "total_count",
-            "frequency_per_million",
-            "document_count",
-            "document_share",
-            "dispersion",
-            "surface_forms",
-            "representative_sentences",
-            "source_papers",
-            "host_review_classification",
-            "host_review_confidence",
-        ],
-    )
-    write_review_markdown(
-        analysis_dir / "first-map-review.md",
-        stats,
-        paper_decisions,
-        selected_vocabulary,
-        selected_terminology,
-    )
+    write_json(analysis_dir / "terminology-explanations.json", explanations)
     write_flat_tsv(
         analysis_dir / "first-terminology-map.tsv",
         selected_terminology,
@@ -234,30 +181,29 @@ def main() -> int:
         {
             "schema_version": 1,
             "generated_at": utc_now(),
-            "reviewer": "current-host-agent",
+            "reviewer": reviewer,
             "review_passes": 1,
-            "source": "full-text corpus statistics and representative sentences",
-            "vocabulary_candidate_count": len(vocabulary),
-            "selected_vocabulary_count": len(selected_vocabulary),
+            "source": "full-text terminology candidates and representative sentences",
             "terminology_candidate_count": len(terminology),
             "selected_terminology_count": len(selected_terminology),
             "outputs": {
-                "vocabulary": "analysis/first-vocabulary-map.tsv",
                 "terminology": "analysis/first-terminology-map.tsv",
                 "terminology_explanations": "analysis/terminology-explanations.json",
-                "review": "analysis/first-map-review.md",
             },
         },
     )
-    print(
-        json.dumps(
-            {
-                "selected_vocabulary_count": len(selected_vocabulary),
-                "selected_terminology_count": len(selected_terminology),
-            },
-            indent=2,
-        )
-    )
+    return {
+        "terminology_candidate_count": len(terminology),
+        "selected_terminology_count": len(selected_terminology),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--selection", type=Path, required=True)
+    args = parser.parse_args()
+    print(json.dumps(finalize_review(args.workspace, args.selection), indent=2))
     return 0
 
 

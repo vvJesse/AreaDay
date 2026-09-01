@@ -35,7 +35,7 @@ def identity(
 ) -> dict[str, object]:
     return {
         "service": "researchramp-workbench",
-        "identity_version": 1,
+        "identity_version": launcher.WORKBENCH_IDENTITY_VERSION,
         "registry": str(registry.expanduser().resolve()),
         "instance_id": instance_id,
         "domain_ids": sorted(domain_ids),
@@ -85,6 +85,22 @@ def create_minimal_completed_workspace(
             f"{lemma}\tnoun\t{40 - index}\t10\t0.5\n"
             for index, lemma in enumerate(lemmas)
         ),
+        encoding="utf-8",
+    )
+    (analysis / "papers.jsonl").write_text("", encoding="utf-8")
+    (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
+    (analysis / "terminology-explanations.json").write_text("{}\n", encoding="utf-8")
+    (analysis / "host-review-summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "reviewer": "current-host-agent",
+                "review_passes": 1,
+                "terminology_candidate_count": 0,
+                "selected_terminology_count": 0,
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
     (analysis / "vocabulary-calibration-session.json").write_text(
@@ -595,7 +611,7 @@ class ProbeContractTests(unittest.TestCase):
 
     def test_identity_version_mismatch_is_incompatible(self) -> None:
         payload = identity(self.registry, "instance-a")
-        payload["identity_version"] = 2
+        payload["identity_version"] = launcher.WORKBENCH_IDENTITY_VERSION + 1
         with http_fixture(payload) as port:
             result = launcher.probe_workbench(port, self.registry, timeout=0.2)
 

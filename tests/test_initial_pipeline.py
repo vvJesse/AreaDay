@@ -121,8 +121,10 @@ class ProfileAndDiscoveryTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temporary:
             with patch(
-                "acquire_mini_corpus.download_openalex_content_pdf",
-                side_effect=lambda work_id, key, destination: write_fake_pdf(destination),
+                "concurrent_downloads.download_openalex_content_pdf",
+                side_effect=lambda work_id, key, destination, **kwargs: write_fake_pdf(
+                    destination
+                ),
             ):
                 results = download_candidates(
                     [candidate],

@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import urllib.parse
 from pathlib import Path
+from typing import Any
+
 MAX_DIRECT_PDF_BYTES = 100 * 1024 * 1024
 
 
@@ -16,20 +18,33 @@ def valid_pdf(path: Path) -> bool:
         return False
 
 
-def download_licensed_open_access_pdf(url: str, destination: Path) -> None:
-    """Download an eligible OA PDF while validating transport, size, and bytes."""
-    import requests
-
+def validated_pdf_hostname(url: str) -> str:
+    """Return the normalized host for an eligible direct PDF URL."""
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError("Open-access PDF URL must be an absolute HTTPS URL")
-    if parsed.hostname.casefold() in {"localhost", "localhost.localdomain"}:
+    hostname = parsed.hostname.casefold()
+    if hostname in {"localhost", "localhost.localdomain"}:
         raise ValueError("Localhost is not a permitted PDF host")
+    return hostname
+
+
+def download_licensed_open_access_pdf(
+    url: str,
+    destination: Path,
+    *,
+    session: Any | None = None,
+) -> None:
+    """Download an eligible OA PDF while validating transport, size, and bytes."""
+    import requests
+
+    validated_pdf_hostname(url)
+    requester = session if session is not None else requests
 
     staging = destination.with_suffix(".pdf.part")
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with requests.get(
+        with requester.get(
             url,
             headers={
                 "User-Agent": "Mozilla/5.0 (compatible; ResearchRamp/0.1; local academic client)",
@@ -40,9 +55,10 @@ def download_licensed_open_access_pdf(url: str, destination: Path) -> None:
             timeout=(20, 120),
         ) as response:
             response.raise_for_status()
-            final_url = urllib.parse.urlparse(response.url)
-            if final_url.scheme != "https":
-                raise RuntimeError("PDF redirect left HTTPS")
+            try:
+                validated_pdf_hostname(response.url)
+            except ValueError as error:
+                raise RuntimeError("PDF redirect left an eligible HTTPS host") from error
             declared_size = response.headers.get("Content-Length")
             if declared_size and int(declared_size) > MAX_DIRECT_PDF_BYTES:
                 raise RuntimeError("PDF exceeds the 100 MB safety limit")
@@ -65,7 +81,11 @@ def download_licensed_open_access_pdf(url: str, destination: Path) -> None:
 
 
 def download_openalex_content_pdf(
-    work_id: str, api_key: str, destination: Path
+    work_id: str,
+    api_key: str,
+    destination: Path,
+    *,
+    session: Any | None = None,
 ) -> None:
     """Download one cached OpenAlex PDF without persisting the user's API key."""
     if not re.fullmatch(r"W\d+", work_id):
@@ -75,10 +95,11 @@ def download_openalex_content_pdf(
     import requests
 
     url = f"https://content.openalex.org/works/{work_id}.pdf"
+    requester = session if session is not None else requests
     staging = destination.with_suffix(".pdf.part")
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with requests.get(
+        with requester.get(
             url,
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -90,6 +111,12 @@ def download_openalex_content_pdf(
             timeout=(20, 120),
         ) as response:
             response.raise_for_status()
+            try:
+                validated_pdf_hostname(response.url)
+            except ValueError as error:
+                raise RuntimeError(
+                    "OpenAlex PDF redirect left an eligible HTTPS host"
+                ) from error
             declared_size = response.headers.get("Content-Length")
             if declared_size and int(declared_size) > MAX_DIRECT_PDF_BYTES:
                 raise RuntimeError("PDF exceeds the 100 MB safety limit")

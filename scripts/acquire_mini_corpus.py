@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -17,11 +18,15 @@ from typing import Any, Iterable
 
 import requests
 
-from fulltext import (
-    download_licensed_open_access_pdf,
-    download_openalex_content_pdf,
-    valid_pdf,
+from arxiv_client import make_arxiv_client
+from candidate_review import build_candidate_review_packet
+from concurrent_downloads import (
+    DEFAULT_MAX_DOWNLOADS,
+    DEFAULT_MAX_DOWNLOADS_PER_HOST,
+    download_candidates_concurrently,
 )
+from provider_discovery import collect_provider_lanes
+from run_timing import RunTimeline
 from corpus_analysis import analyze_corpus
 from domain_registry import DomainRegistry, default_registry_path
 from research_profile import validate_profile
@@ -31,6 +36,7 @@ from researchramp_core import (
     load_openalex_api_key,
     normalize_doi,
     read_json,
+    stable_hash,
     utc_now,
     write_json,
     write_jsonl,
@@ -48,6 +54,8 @@ ARXIV_ID_RE = re.compile(
     r"((?:[a-z][a-z.\-]+/\d{7})|(?:\d{4}\.\d{4,5}))(?:v\d+)?",
     re.IGNORECASE,
 )
+ARXIV_CANDIDATE_CACHE_KIND = "researchramp.arxiv.candidates"
+ARXIV_CANDIDATE_CACHE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -155,7 +163,12 @@ def _candidate_from_s2(
         "pdf_url": pdf_url,
         "pdf_status": pdf.get("status"),
         "query_hits": [
-            {"query_id": query["id"], "label": query["label"], "query": query["query"]}
+            {
+                "provider": "semantic-scholar",
+                "query_id": query["id"],
+                "label": query["label"],
+                "query": query["query"],
+            }
         ],
     }
 
@@ -353,7 +366,12 @@ def _candidate_from_openalex(
         "has_openalex_pdf": has_content,
         "alternate_pdf_urls": direct_urls[1:],
         "query_hits": [
-            {"query_id": query["id"], "label": query["label"], "query": query["query"]}
+            {
+                "provider": "openalex",
+                "query_id": query["id"],
+                "label": query["label"],
+                "query": query["query"],
+            }
         ],
     }
 
@@ -378,12 +396,13 @@ def collect_openalex_candidates(
     cache_dir: Path,
     scope: dict[str, Any],
     max_results_per_query: int,
+    refresh: bool = True,
 ) -> tuple[list[dict[str, Any]], list[SearchAttempt]]:
     """Search OpenAlex with or without a key and interleave query result lists."""
     client = OpenAlexClient(
         cache_dir,
         api_key=api_key,
-        refresh=True,
+        refresh=refresh,
     )
     current_year = datetime.now(UTC).year
     discipline_filter, discipline_ids, configured_ids = _openalex_primary_filter(scope)
@@ -463,17 +482,80 @@ def collect_arxiv_candidates(
     *,
     max_results_per_query: int,
     scope: dict[str, Any],
+    cache_dir: Path | None = None,
+    refresh: bool = True,
 ) -> tuple[list[dict[str, Any]], list[SearchAttempt]]:
     import arxiv
 
-    client = arxiv.Client(page_size=max_results_per_query, delay_seconds=3, num_retries=2)
+    client = make_arxiv_client(
+        page_size=max_results_per_query,
+        delay_seconds=3,
+        num_retries=2,
+        request_timeout_seconds=30,
+    )
     by_identity: dict[str, dict[str, Any]] = {}
     attempts: list[SearchAttempt] = []
     per_query_candidates: list[list[dict[str, Any]]] = []
     for query in queries:
+        provider_query = build_arxiv_query(query, scope)
+        cache_identity = {
+            "kind": ARXIV_CANDIDATE_CACHE_KIND,
+            "schema_version": ARXIV_CANDIDATE_CACHE_SCHEMA_VERSION,
+            "provider_query": provider_query,
+            "max_results": max_results_per_query,
+            "sort": "relevance",
+            "query_metadata": {
+                "id": str(query["id"]),
+                "label": str(query["label"]),
+                "date_lane": str(query.get("date_lane", "recent")),
+                "categories": [
+                    str(value) for value in (query.get("categories") or [])
+                ],
+            },
+            "exclude_title_prefixes": [
+                str(value) for value in scope["exclude_title_prefixes"]
+            ],
+        }
+        cache_path = (
+            cache_dir
+            / (stable_hash(cache_identity, 24) + ".json")
+            if cache_dir is not None
+            else None
+        )
+        query_candidates: list[dict[str, Any]] | None = None
+        if cache_path is not None and cache_path.is_file() and not refresh:
+            try:
+                cached = read_json(cache_path)
+                cached_candidates = cached.get("candidates")
+                if (
+                    cached.get("cache") == cache_identity
+                    and isinstance(cached_candidates, list)
+                    and all(
+                        isinstance(item, dict)
+                        and item.get("provider") == "arxiv"
+                        and item.get("candidate_id")
+                        for item in cached_candidates
+                    )
+                ):
+                    query_candidates = cached_candidates
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                query_candidates = None
+
+        if query_candidates is not None:
+            attempts.append(
+                SearchAttempt(
+                    query["id"],
+                    "arxiv",
+                    "ok",
+                    len(query_candidates),
+                    "cache-hit",
+                )
+            )
+            per_query_candidates.append(query_candidates)
+            continue
+
         results: list[Any] = []
         try:
-            provider_query = build_arxiv_query(query, scope)
             search = arxiv.Search(
                 query=provider_query,
                 max_results=max_results_per_query,
@@ -491,13 +573,12 @@ def collect_arxiv_candidates(
                     f"{type(error).__name__}: {error}",
                 )
             )
-        query_candidates: list[dict[str, Any]] = []
+        query_candidates = []
         for result in results:
             title = result.title.strip()
             if _title_is_excluded(title, scope["exclude_title_prefixes"]):
                 continue
             arxiv_id = re.sub(r"v\d+$", "", result.get_short_id(), flags=re.I)
-            identity = f"arxiv:{arxiv_id.casefold()}"
             pdf_url = str(result.pdf_url or "")
             if pdf_url.startswith("http://"):
                 pdf_url = "https://" + pdf_url[len("http://") :]
@@ -519,6 +600,7 @@ def collect_arxiv_candidates(
                 "pdf_status": "ARXIV",
                 "query_hits": [
                     {
+                        "provider": "arxiv",
                         "query_id": query["id"],
                         "label": query["label"],
                         "query": provider_query,
@@ -530,9 +612,16 @@ def collect_arxiv_candidates(
                     "categories": list(query.get("categories") or []),
                 },
             }
-            candidate["_identity"] = identity
             query_candidates.append(candidate)
         per_query_candidates.append(query_candidates)
+        if cache_path is not None and attempts[-1].status == "ok":
+            write_json(
+                cache_path,
+                {
+                    "cache": cache_identity,
+                    "candidates": query_candidates,
+                },
+            )
 
     foundation_used = 0
     foundation_limit = int(scope.get("foundation_limit") or 0)
@@ -544,19 +633,33 @@ def collect_arxiv_candidates(
             lane = candidate["query_hits"][0]["date_lane"]
             if lane == "foundation" and foundation_used >= foundation_limit:
                 continue
-            identity = candidate.pop("_identity")
+            identity = f"arxiv:{str(candidate['arxiv_id']).casefold()}"
             existing = by_identity.get(identity)
             if existing is None:
                 by_identity[identity] = candidate
                 if lane == "foundation":
                     foundation_used += 1
             else:
-                known_hits = {item["query_id"] for item in existing["query_hits"]}
+                known_hits = {
+                    (
+                        str(item.get("provider") or existing["provider"]),
+                        str(item["query_id"]),
+                    )
+                    for item in existing["query_hits"]
+                }
                 existing["query_hits"].extend(
                     item
                     for item in candidate["query_hits"]
-                    if item["query_id"] not in known_hits
+                    if (
+                        str(item.get("provider") or candidate["provider"]),
+                        str(item["query_id"]),
+                    )
+                    not in known_hits
                 )
+    session = getattr(client, "_session", None)
+    close_session = getattr(session, "close", None)
+    if callable(close_session):
+        close_session()
     return list(by_identity.values()), attempts
 
 
@@ -598,11 +701,21 @@ def merge_candidates(*groups: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
                 merged.append(candidate)
             else:
                 existing = merged[match_index]
-                known_hits = {item["query_id"] for item in existing["query_hits"]}
+                known_hits = {
+                    (
+                        str(item.get("provider") or existing["provider"]),
+                        str(item["query_id"]),
+                    )
+                    for item in existing["query_hits"]
+                }
                 existing["query_hits"].extend(
                     item
                     for item in candidate["query_hits"]
-                    if item["query_id"] not in known_hits
+                    if (
+                        str(item.get("provider") or candidate["provider"]),
+                        str(item["query_id"]),
+                    )
+                    not in known_hits
                 )
                 for field in ("doi", "openalex_id", "semantic_scholar_id", "arxiv_id"):
                     if not existing.get(field) and candidate.get(field):
@@ -636,18 +749,30 @@ def merge_candidates(*groups: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def apply_agent_selection(
-    candidates: Iterable[dict[str, Any]], selection_path: Path
+    candidates: Iterable[dict[str, Any]],
+    selection_path: Path,
+    review_packet_path: Path,
 ) -> list[dict[str, Any]]:
     """Return candidates in the exact order approved by the host agent."""
     selection = read_json(selection_path)
     if selection.get("schema_version") != 1:
         raise ValueError("selection schema_version must be 1")
+    if selection.get("reviewer") != "current-host-agent":
+        raise ValueError("selection reviewer must be current-host-agent")
     selected_ids = selection.get("selected_candidate_ids")
     if not isinstance(selected_ids, list) or not selected_ids:
         raise ValueError("selection must contain selected_candidate_ids")
     if len(selected_ids) != len(set(selected_ids)):
         raise ValueError("selection contains duplicate candidate IDs")
     by_id = {item["candidate_id"]: item for item in candidates}
+    reviewed_ids = {
+        item["candidate_id"] for item in _read_jsonl(review_packet_path)
+    }
+    unreviewed = [item for item in selected_ids if item not in reviewed_ids]
+    if unreviewed:
+        raise ValueError(
+            f"selection contains candidates outside the review packet: {unreviewed[:5]}"
+        )
     unknown = [item for item in selected_ids if item not in by_id]
     if unknown:
         raise ValueError(f"selection contains unknown candidate IDs: {unknown[:5]}")
@@ -660,98 +785,25 @@ def download_candidates(
     *,
     target_papers: int,
     openalex_api_key: str | None,
+    max_downloads: int = DEFAULT_MAX_DOWNLOADS,
+    max_downloads_per_host: int = DEFAULT_MAX_DOWNLOADS_PER_HOST,
 ) -> list[dict[str, Any]]:
-    papers_dir = workspace / "papers"
-    papers_dir.mkdir(parents=True, exist_ok=True)
-    results: list[dict[str, Any]] = []
-    succeeded = 0
-    for candidate in candidates:
-        if succeeded >= target_papers:
-            break
-        safe_id = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate["candidate_id"])
-        destination = papers_dir / f"{safe_id}.pdf"
-        record = {
-            "candidate_id": candidate["candidate_id"],
-            "title": candidate["title"],
-            "provider": candidate["provider"],
-            "pdf_url": candidate["pdf_url"],
-            "path": str(destination),
-            "status": "failed",
-            "message": None,
-            "attempts": [],
-        }
-        if destination.exists() and valid_pdf(destination):
-            record["status"] = "existing"
-            succeeded += 1
-        else:
-            direct_routes: list[dict[str, Any]] = []
-            if candidate.get("pdf_url"):
-                direct_routes.append(
-                    {"provider": candidate["provider"], "url": candidate["pdf_url"]}
-                )
-            direct_routes.extend(candidate.get("alternate_pdf_urls") or [])
-            seen_urls: set[str] = set()
-            for route in direct_routes:
-                url = str(route.get("url") or "")
-                if not url or url in seen_urls:
-                    continue
-                seen_urls.add(url)
-                try:
-                    download_licensed_open_access_pdf(url, destination)
-                    record["status"] = "downloaded"
-                    record["provider"] = route.get("provider") or candidate["provider"]
-                    record["pdf_url"] = url
-                    record["message"] = None
-                    record["attempts"].append(
-                        {"provider": record["provider"], "status": "downloaded"}
-                    )
-                    succeeded += 1
-                    break
-                except Exception as error:
-                    destination.unlink(missing_ok=True)
-                    record["attempts"].append(
-                        {
-                            "provider": route.get("provider") or candidate["provider"],
-                            "status": "failed",
-                            "error": f"{type(error).__name__}: {error}"[:500],
-                        }
-                    )
+    return download_candidates_concurrently(
+        candidates,
+        workspace,
+        target_papers=target_papers,
+        openalex_api_key=openalex_api_key,
+        max_downloads=max_downloads,
+        max_downloads_per_host=max_downloads_per_host,
+    )
 
-            if (
-                record["status"] == "failed"
-                and openalex_api_key
-                and candidate.get("openalex_id")
-                and candidate.get("has_openalex_pdf")
-            ):
-                try:
-                    download_openalex_content_pdf(
-                        str(candidate["openalex_id"]), openalex_api_key, destination
-                    )
-                    record["status"] = "downloaded"
-                    record["provider"] = "openalex-content"
-                    record["pdf_url"] = None
-                    record["message"] = None
-                    record["attempts"].append(
-                        {"provider": "openalex-content", "status": "downloaded"}
-                    )
-                    succeeded += 1
-                except Exception as error:
-                    destination.unlink(missing_ok=True)
-                    record["attempts"].append(
-                        {
-                            "provider": "openalex-content",
-                            "status": "failed",
-                            "error": f"{type(error).__name__}: {error}"[:500],
-                        }
-                    )
-            if record["status"] == "failed" and record["attempts"]:
-                record["message"] = "; ".join(
-                    f"{item['provider']}: {item.get('error', item['status'])}"
-                    for item in record["attempts"]
-                )[:1000]
-        results.append(record)
-        write_jsonl(workspace / "download-results.jsonl", results)
-    return results
+
+def minimum_usable_papers(target_papers: int) -> int:
+    """Return the one corpus-viability floor used by acquisition and init."""
+
+    if target_papers < 1:
+        raise ValueError("target_papers must be positive")
+    return max(1, math.ceil(target_papers * 6 / 7))
 
 
 def _attempt_dict(attempt: SearchAttempt) -> dict[str, Any]:
@@ -778,9 +830,40 @@ def parse_args() -> argparse.Namespace:
         help="Confirmed research-profile JSON stored in the user's domain workspace.",
     )
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        default=default_registry_path(),
+        help="Explicit registry for this Skill installation or isolated test run.",
+    )
     parser.add_argument("--target-papers", type=int, default=70)
     parser.add_argument("--openalex-per-query", type=int, default=50)
     parser.add_argument("--arxiv-per-query", type=int, default=60)
+    parser.add_argument(
+        "--review-candidate-limit",
+        type=int,
+        help=(
+            "Maximum candidates in the coverage-preserving host-review packet. "
+            "Defaults to a target-scaled limit."
+        ),
+    )
+    parser.add_argument(
+        "--refresh-search",
+        action="store_true",
+        help="Ignore successful metadata caches and query providers again.",
+    )
+    parser.add_argument(
+        "--download-workers",
+        type=int,
+        default=DEFAULT_MAX_DOWNLOADS,
+        help="Maximum concurrent PDF downloads (default: 4).",
+    )
+    parser.add_argument(
+        "--download-workers-per-host",
+        type=int,
+        default=DEFAULT_MAX_DOWNLOADS_PER_HOST,
+        help="Maximum concurrent PDF downloads to one host (default: 2).",
+    )
     parser.add_argument("--skip-arxiv", action="store_true")
     parser.add_argument("--skip-openalex", action="store_true")
     parser.add_argument("--search-only", action="store_true")
@@ -797,6 +880,19 @@ def main() -> int:
     args = parse_args()
     if not 1 <= args.target_papers <= 100:
         raise SystemExit("--target-papers must be between 1 and 100")
+    if (
+        args.review_candidate_limit is not None
+        and args.review_candidate_limit < args.target_papers
+    ):
+        raise SystemExit("--review-candidate-limit cannot be smaller than --target-papers")
+    if args.download_workers <= 0:
+        raise SystemExit("--download-workers must be positive")
+    if args.download_workers_per_host <= 0:
+        raise SystemExit("--download-workers-per-host must be positive")
+    if args.download_workers_per_host > args.download_workers:
+        raise SystemExit(
+            "--download-workers-per-host cannot exceed --download-workers"
+        )
     if args.search_only == bool(args.selection):
         raise SystemExit(
             "Choose exactly one stage: --search-only, or --selection <agent-review.json>."
@@ -808,77 +904,134 @@ def main() -> int:
     scope = profile["retrieval_scope"]
     workspace = args.workspace.resolve()
     workspace.mkdir(parents=True, exist_ok=True)
+    timeline = RunTimeline(workspace / "run-timings.json")
     write_json(workspace / "research-profile.json", profile)
-    DomainRegistry(default_registry_path()).register(workspace)
+    DomainRegistry(args.registry).register(workspace)
     openalex_api_key = load_openalex_api_key()
     started = utc_now()
 
-    openalex_candidates: list[dict[str, Any]] = []
-    arxiv_candidates: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
     if args.search_only:
         providers = list(scope["providers"])
-        openalex_attempts: list[SearchAttempt] = []
+        active_providers: list[str] = []
+        collectors = {}
         if "openalex" in providers and not args.skip_openalex:
-            openalex_candidates, openalex_attempts = collect_openalex_candidates(
+            active_providers.append("openalex")
+            collectors["openalex"] = lambda: collect_openalex_candidates(
                 queries,
                 api_key=openalex_api_key,
                 cache_dir=workspace / "cache" / "openalex-search",
                 scope=scope,
                 max_results_per_query=args.openalex_per_query,
+                refresh=args.refresh_search,
             )
 
-        arxiv_attempts: list[SearchAttempt] = []
         if (
             "arxiv" in providers
             and not args.skip_arxiv
             and profile.get("arxiv_search_queries")
         ):
-            arxiv_candidates, arxiv_attempts = collect_arxiv_candidates(
+            active_providers.append("arxiv")
+            collectors["arxiv"] = lambda: collect_arxiv_candidates(
                 profile["arxiv_search_queries"],
                 max_results_per_query=args.arxiv_per_query,
                 scope=scope,
+                cache_dir=workspace / "cache" / "arxiv-search",
+                refresh=args.refresh_search,
             )
 
-        groups = {
-            "openalex": openalex_candidates,
-            "arxiv": arxiv_candidates,
-        }
-        candidates = merge_candidates(*(groups[provider] for provider in providers))
-        write_jsonl(workspace / "candidates.jsonl", candidates)
-        attempts = [
-            *_attempt_dicts(openalex_attempts),
-            *_attempt_dicts(arxiv_attempts),
-        ]
-        write_json(workspace / "search-attempts.json", attempts)
+        with timeline.phase(
+            "discovery.total",
+            details={
+                "providers": active_providers,
+                "openalex_query_count": len(queries) if "openalex" in active_providers else 0,
+                "arxiv_query_count": len(profile.get("arxiv_search_queries") or [])
+                if "arxiv" in active_providers
+                else 0,
+            },
+        ):
+            groups, attempt_groups, provider_timings = collect_provider_lanes(
+                active_providers,
+                collectors,
+            )
+            for provider, timing in provider_timings.items():
+                timeline.record(
+                    f"discovery.{provider}",
+                    started_at=timing["started_at"],
+                    finished_at=timing["finished_at"],
+                    elapsed_seconds=timing["elapsed_seconds"],
+                    status=timing["status"],
+                    details={
+                        "candidate_count": timing.get("candidate_count", 0),
+                        "attempt_count": timing.get("attempt_count", 0),
+                    },
+                )
+            candidates = merge_candidates(
+                *(groups[provider] for provider in active_providers)
+            )
+            write_jsonl(workspace / "candidates.jsonl", candidates)
+            attempts = [
+                item
+                for provider in active_providers
+                for item in _attempt_dicts(attempt_groups[provider])
+            ]
+            write_json(workspace / "search-attempts.json", attempts)
+
+        with timeline.phase("candidate_review.prepare"):
+            review_packet, review_summary = build_candidate_review_packet(
+                candidates,
+                target_papers=args.target_papers,
+                limit=args.review_candidate_limit,
+            )
+            write_jsonl(workspace / "candidate-review-packet.jsonl", review_packet)
+            write_json(workspace / "candidate-review-summary.json", review_summary)
         selected_candidates = candidates
     else:
         candidate_path = workspace / "candidates.jsonl"
         if not candidate_path.exists():
             raise SystemExit("Run --search-only in this workspace before applying a selection.")
         candidates = _read_jsonl(candidate_path)
-        selected_candidates = apply_agent_selection(candidates, args.selection)
+        selected_candidates = apply_agent_selection(
+            candidates,
+            args.selection,
+            workspace / "candidate-review-packet.jsonl",
+        )
         attempt_path = workspace / "search-attempts.json"
         attempts = read_json(attempt_path) if attempt_path.exists() else []
 
     download_results: list[dict[str, Any]] = []
     if not args.search_only:
-        download_results = download_candidates(
-            selected_candidates,
-            workspace,
-            target_papers=args.target_papers,
-            openalex_api_key=openalex_api_key,
-        )
+        with timeline.phase(
+            "download",
+            details={
+                "selected_candidate_count": len(selected_candidates),
+                "target_papers": args.target_papers,
+            },
+        ):
+            download_results = download_candidates(
+                selected_candidates,
+                workspace,
+                target_papers=args.target_papers,
+                openalex_api_key=openalex_api_key,
+                max_downloads=args.download_workers,
+                max_downloads_per_host=args.download_workers_per_host,
+            )
     status_counts = Counter(item["status"] for item in download_results)
     successful = status_counts["downloaded"] + status_counts["existing"]
+    minimum_usable = minimum_usable_papers(args.target_papers)
+    corpus_is_usable = successful >= minimum_usable
     analysis: dict[str, Any] | None = None
-    if args.analyze and successful:
-        analysis = analyze_corpus(
-            candidates,
-            download_results,
-            workspace,
-            profile=profile,
-        )
+    if args.analyze and corpus_is_usable:
+        with timeline.phase(
+            "analysis",
+            details={"successful_pdf_count": successful},
+        ):
+            analysis = analyze_corpus(
+                candidates,
+                download_results,
+                workspace,
+                profile=profile,
+            )
     summary = {
         "started_at": started,
         "finished_at": utc_now(),
@@ -889,17 +1042,21 @@ def main() -> int:
         "merged_candidates": len(candidates),
         "agent_selected_candidates": len(selected_candidates) if args.selection else None,
         "target_papers": args.target_papers,
+        "minimum_usable_papers": minimum_usable,
         "successful_pdfs": successful,
+        "corpus_is_usable": corpus_is_usable,
+        "target_shortfall": max(0, args.target_papers - successful),
         "download_statuses": dict(status_counts),
         "search_statuses": dict(Counter(item["status"] for item in attempts)),
         "openalex_key_configured": bool(openalex_api_key),
         "used_openalex": any(item.get("provider") == "openalex" for item in candidates),
         "reused_existing_candidate_list": bool(args.selection),
+        "timings": timeline.snapshot(),
         "analysis": analysis,
     }
     write_json(workspace / "cold-start-summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0 if args.search_only or successful >= args.target_papers else 2
+    return 0 if args.search_only or corpus_is_usable else 2
 
 
 def _attempt_dicts(attempts: Iterable[SearchAttempt]) -> list[dict[str, Any]]:

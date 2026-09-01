@@ -38,12 +38,6 @@ def venv_python(venv_dir: Path, platform: str = sys.platform) -> Path:
     return venv_dir / "bin" / "python"
 
 
-def tool_path(name: str, venv_dir: Path, platform: str = sys.platform) -> Path:
-    suffix = ".exe" if platform == "win32" else ""
-    folder = "Scripts" if platform == "win32" else "bin"
-    return venv_dir / folder / f"{name}{suffix}"
-
-
 def runtime_environment(model_dir: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -402,12 +396,10 @@ def download_and_verify_embedding_model(
 
 def check(venv_dir: Path, model_dir: Path) -> bool:
     python = venv_python(venv_dir)
-    expected = {
-        "arxiv-mcp-server": tool_path("arxiv-mcp-server", venv_dir),
-    }
-    missing = [name for name, path in expected.items() if not path.exists()]
     if not python.exists():
-        missing.insert(0, "isolated Python environment")
+        print("Missing local dependencies: isolated Python environment")
+        return False
+    missing = missing_pinned_requirements(venv_dir)
     if missing:
         print("Missing local dependencies: " + ", ".join(missing))
         return False
@@ -420,7 +412,7 @@ def check(venv_dir: Path, model_dir: Path) -> bool:
     except (OSError, subprocess.CalledProcessError):
         print("The local NLP runtime is incomplete or failed its inference check.")
         return False
-    print(f"arXiv MCP: {expected['arxiv-mcp-server']}")
+    print("Python packages: verified")
     print(f"NLP models: {model_dir}")
     return True
 

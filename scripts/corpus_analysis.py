@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import re
+import shutil
+import time
 from pathlib import Path
 from statistics import median
 from typing import Any, Callable
@@ -14,6 +16,14 @@ from corpus_selection import embed_texts, select_analysis_documents
 from lexical_assets import build_lexical_assets, select_shared_terminology_candidates
 from orthography_review import build_orthography_review_candidates
 from researchramp_core import utc_now, write_json, write_jsonl
+
+
+def _copy_output(source: Path, destination: Path) -> None:
+    """Atomically copy an already-serialized artifact to a compatibility alias."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    shutil.copyfile(source, temporary)
+    temporary.replace(destination)
 
 
 def _write_vocabulary_tsv(path: Path, vocabulary: list[dict[str, Any]]) -> None:
@@ -103,9 +113,9 @@ def build_terminology_review_input(
             "selection reason."
         ),
         "output_schema": {
-            "terminology": {
-                "exact selected candidate term": "1.0"
-            },
+            "schema_version": 1,
+            "reviewer": "current-host-agent",
+            "terminology": {"exact selected candidate term": 1.0},
             "terminology_explanations": {
                 "exact selected candidate term": {
                     "meaning_en": "concise contextual English explanation",
@@ -128,6 +138,7 @@ def analyze_corpus(
     text_extractor: Callable[[Path], tuple[str, int]] = extract_pdf_text,
     embedding_fn=embed_texts,
     nlp: Any | None = None,
+    monotonic: Callable[[], float] = time.perf_counter,
 ) -> dict[str, Any]:
     """Extract, clean, deduplicate, conservatively filter, and profile a corpus."""
     def candidate_id(item: dict[str, Any]) -> str:
@@ -137,7 +148,9 @@ def analyze_corpus(
     text_dir = workspace / "analysis" / "text"
     text_dir.mkdir(parents=True, exist_ok=True)
     paper_records: list[dict[str, Any]] = []
+    phase_elapsed_seconds: dict[str, float] = {}
 
+    phase_started = monotonic()
     for result in download_results:
         if result.get("status") not in {"downloaded", "existing"}:
             continue
@@ -179,14 +192,29 @@ def analyze_corpus(
         except Exception as error:
             record.update(status="failed", error=f"{type(error).__name__}: {error}")
         paper_records.append(record)
+    phase_elapsed_seconds["pdf_extraction_and_cleaning"] = round(
+        monotonic() - phase_started,
+        6,
+    )
 
+    phase_started = monotonic()
     selection = select_analysis_documents(
         paper_records,
         profile,
         embedding_fn=embedding_fn,
     )
+    phase_elapsed_seconds["paper_selection"] = round(
+        monotonic() - phase_started,
+        6,
+    )
     included_documents = selection["included"]
+    phase_started = monotonic()
     assets = build_lexical_assets(included_documents, nlp=nlp)
+    phase_elapsed_seconds["lexical_assets"] = round(
+        monotonic() - phase_started,
+        6,
+    )
+    phase_started = monotonic()
     vocabulary = assets["vocabulary"]
     raw_terminology = assets["terminology_candidates"]
     terminology, terminology_minimum_documents = select_shared_terminology_candidates(
@@ -194,17 +222,31 @@ def analyze_corpus(
         assets["included_document_count"],
     )
     orthography_candidates = build_orthography_review_candidates(vocabulary)
+    phase_elapsed_seconds["candidate_preparation"] = round(
+        monotonic() - phase_started,
+        6,
+    )
 
     analysis_dir = workspace / "analysis"
-    _write_vocabulary_tsv(
-        analysis_dir / "pre-orthography-vocabulary-map.tsv", vocabulary
+    phase_started = monotonic()
+    pre_orthography_vocabulary_tsv = (
+        analysis_dir / "pre-orthography-vocabulary-map.tsv"
     )
-    write_jsonl(
-        analysis_dir / "pre-orthography-vocabulary-map.jsonl", vocabulary
+    _write_vocabulary_tsv(pre_orthography_vocabulary_tsv, vocabulary)
+    _copy_output(
+        pre_orthography_vocabulary_tsv,
+        analysis_dir / "vocabulary-map.tsv",
     )
-    _write_vocabulary_tsv(analysis_dir / "vocabulary-map.tsv", vocabulary)
-    _write_vocabulary_tsv(analysis_dir / "vocabulary.tsv", vocabulary)
-    write_jsonl(analysis_dir / "vocabulary-map.jsonl", vocabulary)
+    _copy_output(pre_orthography_vocabulary_tsv, analysis_dir / "vocabulary.tsv")
+
+    pre_orthography_vocabulary_jsonl = (
+        analysis_dir / "pre-orthography-vocabulary-map.jsonl"
+    )
+    write_jsonl(pre_orthography_vocabulary_jsonl, vocabulary)
+    _copy_output(
+        pre_orthography_vocabulary_jsonl,
+        analysis_dir / "vocabulary-map.jsonl",
+    )
     _write_terminology_tsv(
         analysis_dir / "raw-terminology-candidates.tsv",
         raw_terminology,
@@ -249,8 +291,13 @@ def analyze_corpus(
         {key: value for key, value in record.items() if key != "clean_text"}
         for record in paper_records
     ]
-    write_jsonl(analysis_dir / "paper-decisions.jsonl", public_paper_records)
-    write_jsonl(analysis_dir / "papers.jsonl", public_paper_records)
+    paper_decisions_path = analysis_dir / "paper-decisions.jsonl"
+    write_jsonl(paper_decisions_path, public_paper_records)
+    _copy_output(paper_decisions_path, analysis_dir / "papers.jsonl")
+    phase_elapsed_seconds["asset_serialization"] = round(
+        monotonic() - phase_started,
+        6,
+    )
 
     extracted_count = sum(record["status"] == "extracted" for record in paper_records)
     body_counts = [
@@ -285,6 +332,7 @@ def analyze_corpus(
         "orthography_review_candidate_count": len(orthography_candidates),
         "orthography_review_applied": False,
         "minimum_document_count": assets["minimum_document_count"],
+        "phase_elapsed_seconds": phase_elapsed_seconds,
         "outputs": {
             "vocabulary_tsv": "analysis/vocabulary-map.tsv",
             "vocabulary_jsonl": "analysis/vocabulary-map.jsonl",

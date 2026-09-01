@@ -63,7 +63,7 @@ class WorkbenchIdentityTests(unittest.TestCase):
             runtime.identity(),
             {
                 "service": "researchramp-workbench",
-                "identity_version": 1,
+                "identity_version": APP.WORKBENCH_IDENTITY_VERSION,
                 "registry": str(
                     (self.root / "library" / "domains.json").resolve()
                 ),
@@ -85,7 +85,7 @@ class WorkbenchIdentityTests(unittest.TestCase):
             runtime.identity(),
             {
                 "service": "researchramp-workbench",
-                "identity_version": 1,
+                "identity_version": APP.WORKBENCH_IDENTITY_VERSION,
                 "registry": None,
                 "instance_id": "standalone-instance",
                 "domain_ids": ["standalone"],
@@ -130,7 +130,7 @@ class WorkbenchIdentityTests(unittest.TestCase):
             json.loads(handler.wfile.getvalue().decode("utf-8")),
             {
                 "service": "researchramp-workbench",
-                "identity_version": 1,
+                "identity_version": APP.WORKBENCH_IDENTITY_VERSION,
                 "registry": str(
                     (self.root / "library" / "domains.json").resolve()
                 ),

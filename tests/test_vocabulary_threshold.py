@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -61,7 +62,9 @@ class VocabularyThresholdTests(unittest.TestCase):
                     "uncertain": 7,
                     "likely_unknown": 3,
                     "remaining_after_conservative_exclusion": 10,
+                    "important_boundary_protected": 0,
                 },
+                "threshold": {"selected_percent": 90},
                 "importance": {
                     "corpus_document_count": 100,
                     "priority_word_count": 4,
@@ -71,13 +74,18 @@ class VocabularyThresholdTests(unittest.TestCase):
                 "known_boundary": [],
                 "remaining_boundary": [],
             }
-            state_path.with_name("vocabulary-calibration-result.json").write_text(
-                json.dumps(frozen), encoding="utf-8"
-            )
-            state_path.with_name("personalized-vocabulary.tsv").write_text(
+            export_path = state_path.with_name("personalized-vocabulary.tsv")
+            export_path.write_text(
                 "lemma\tclassification\n"
                 + "".join(f"word{index}\tlikely_known\n" for index in range(30)),
                 encoding="utf-8",
+            )
+            frozen["vocabulary_snapshot_sha256"] = "fixture-snapshot"
+            frozen["personalized_vocabulary_sha256"] = hashlib.sha256(
+                export_path.read_bytes()
+            ).hexdigest()
+            state_path.with_name("vocabulary-calibration-result.json").write_text(
+                json.dumps(frozen), encoding="utf-8"
             )
 
             session = APP.CalibrationSession(words, state_path, "test corpus")
@@ -111,7 +119,9 @@ class VocabularyThresholdTests(unittest.TestCase):
                     "uncertain": 200,
                     "likely_unknown": 100,
                     "remaining_after_conservative_exclusion": 300,
+                    "important_boundary_protected": 0,
                 },
+                "threshold": {"selected_percent": 90},
                 "importance": {
                     "corpus_document_count": 100,
                     "priority_word_count": 80,
@@ -123,12 +133,16 @@ class VocabularyThresholdTests(unittest.TestCase):
             }
             result_path = state_path.with_name("vocabulary-calibration-result.json")
             export_path = state_path.with_name("personalized-vocabulary.tsv")
-            result_path.write_text(json.dumps(frozen), encoding="utf-8")
             export_path.write_text(
                 "lemma\tclassification\n"
                 + "".join(f"word{index}\tlikely_unknown\n" for index in range(300)),
                 encoding="utf-8",
             )
+            frozen["vocabulary_snapshot_sha256"] = "original-raw-map"
+            frozen["personalized_vocabulary_sha256"] = hashlib.sha256(
+                export_path.read_bytes()
+            ).hexdigest()
+            result_path.write_text(json.dumps(frozen), encoding="utf-8")
             result_hash = result_path.read_bytes()
             export_hash = export_path.read_bytes()
 
@@ -214,9 +228,10 @@ class VocabularyThresholdTests(unittest.TestCase):
     def test_important_words_are_protected_only_near_the_boundary(self) -> None:
         words = [word("core", 10), word("edge", 2), word("unknown", 5)]
         with tempfile.TemporaryDirectory() as temporary:
-            session = APP.CalibrationSession(
-                words, Path(temporary) / "session.json", "test corpus"
-            )
+            with patch.object(APP, "QUESTION_LIMIT", len(words)):
+                session = APP.CalibrationSession(
+                    words, Path(temporary) / "session.json", "test corpus"
+                )
             with patch.object(
                 session,
                 "probabilities",
@@ -233,9 +248,10 @@ class VocabularyThresholdTests(unittest.TestCase):
     def test_threshold_accepts_each_integer_in_the_visible_range(self) -> None:
         words = [word("sample", 2)]
         with tempfile.TemporaryDirectory() as temporary:
-            session = APP.CalibrationSession(
-                words, Path(temporary) / "session.json", "test corpus"
-            )
+            with patch.object(APP, "QUESTION_LIMIT", len(words)):
+                session = APP.CalibrationSession(
+                    words, Path(temporary) / "session.json", "test corpus"
+                )
             session.set_threshold_percent(75)
             self.assertEqual(session.known_threshold, 0.75)
             session.set_threshold_percent(98)

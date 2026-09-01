@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from global_learning import GlobalLearningStore
+from terminology_assets import load_finalized_terminology
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -45,34 +46,19 @@ class TerminologyCatalog:
         self.domain_label = domain_label
         self.learning_store = learning_store
         analysis = self.workspace / "analysis"
-        term_path = analysis / "first-terminology-map.jsonl"
-        explanation_path = analysis / "terminology-explanations.json"
         papers_path = analysis / "papers.jsonl"
-        for path in (term_path, explanation_path, papers_path):
+        for path in (papers_path,):
             if not path.is_file():
                 raise FileNotFoundError(f"ResearchRamp 术语产物缺失：{path}")
-        self._raw_terms = _read_jsonl(term_path)
+        self._raw_terms, self._explanations, _ = load_finalized_terminology(
+            self.workspace,
+            require_review_summary=False,
+        )
         self._papers = {
             str(item.get("openalex_id") or "").strip(): item
             for item in _read_jsonl(papers_path)
             if str(item.get("openalex_id") or "").strip()
         }
-        explanations = json.loads(explanation_path.read_text(encoding="utf-8"))
-        if not isinstance(explanations, dict):
-            raise ValueError(f"术语解释必须是一个对象：{explanation_path}")
-        self._explanations = explanations
-        reviewed_terms = {
-            str(item.get("term") or "").strip().casefold()
-            for item in self._raw_terms
-            if item.get("host_review_classification") == "domain-term"
-        }
-        missing = sorted(reviewed_terms.difference(self._explanations))
-        extra = sorted(set(self._explanations).difference(reviewed_terms))
-        if missing or extra:
-            raise ValueError(
-                "术语解释与审核后术语表不一致；"
-                f"缺少 {len(missing)} 条，多出 {len(extra)} 条"
-            )
 
     def _context_for_paper(
         self, term: str, paper_id: str, surface_forms: list[dict[str, Any]]

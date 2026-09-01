@@ -5,11 +5,11 @@ The initial run begins only after the user confirms both the interpreted researc
 ## Acquisition order
 
 1. Read the research scope and retrieval scope that the user separately confirmed. These contain the accepted disciplines/categories, recent-year boundary, and older-foundation allowance.
-2. Search OpenAlex across the confirmed query facets and send the confirmed `primary_topic.*` taxonomy filter with every request. The one-time local setup records either keyed or anonymous access in `~/.researchramp/credentials.ini`. A configured key increases the metadata budget and enables the cached OpenAlex content endpoint as a same-paper route. Never persist the key in corpus files.
-3. Search arXiv only when the confirmed provider list includes it; every arXiv query must include subject categories and a confirmed date lane, with at least three seconds between requests. Do not use Semantic Scholar.
+2. Search OpenAlex across the confirmed query facets and send the confirmed `primary_topic.*` taxonomy filter with every request. The one-time local setup records either keyed or anonymous access in `~/.researchramp/credentials.ini`. A configured key increases the metadata budget and enables the cached OpenAlex content endpoint as a same-paper route. Never persist the key in corpus files. Reuse successful per-query metadata from this workspace when the same confirmed run is resumed.
+3. Search arXiv only when the confirmed provider list includes it; every arXiv query must include subject categories and a confirmed date lane, with at least three seconds between requests. OpenAlex and arXiv may run as independent concurrent lanes, but arXiv requests within its own lane remain serial. Do not use Semantic Scholar.
 4. Exclude obvious comments, replies, corrections, errata, and withdrawals. Interleave candidates across query groups and providers, cap the foundation lane, and deduplicate by DOI, OpenAlex ID, arXiv ID, or normalized title.
-5. Stop after metadata discovery. The current host agent reviews titles and abstracts, rejects incidental keyword matches and off-scope records, and writes an ordered list of up to 100 approved IDs. Do not ask the user to screen individual papers.
-6. Download only reviewed public PDF routes returned by the providers. Try external OA locations and mirrors first. With keyed OpenAlex access, use the OpenAlex content endpoint only after those routes fail. Validate HTTPS, the PDF signature, and a 100 MB per-file ceiling. Continue to later reviewed candidates until 70 valid PDFs are present or the reviewed list is exhausted; 60–69 is a usable initial corpus and must be reported as such.
+5. After metadata discovery, the current host agent reviews the bounded, coverage-preserving candidate packet, consults the retained complete list only when more candidates are needed, rejects incidental keyword matches and off-scope records, and writes an ordered list of up to 100 approved IDs. This is an internal controller checkpoint, not a stopping point and not a task for the user.
+6. Download only reviewed public PDF routes returned by the providers. Try each route at most twice in the same invocation before moving to the next route. Try external OA locations and mirrors before the keyed OpenAlex content endpoint. Validate HTTPS, the PDF signature, and a 100 MB per-file ceiling. Use bounded concurrency across different papers, keep routes for one paper serial, and preserve reviewed result order. Continue to later reviewed candidates until the target is reached or the reviewed list is exhausted. The usable minimum is `ceil(target × 6/7)`: 60 for a target of 70 and 9 for a target of 10. Run corpus analysis only after that minimum is reached.
 7. Keep every file and result in the confirmed local directory. Do not crawl publisher pages, bypass access controls, or substitute fuzzy title matches.
 
 This order is automatic. The user does not need to choose a provider paper by paper.
@@ -24,16 +24,19 @@ This order is automatic. The user does not need to choose a provider paper by pa
 6. Check the aggregated spaCy lemmas against the local spelling lexicon to create a high-recall suspicious-item queue. The current host agent reviews surface forms and full-text sentences, corrects only confirmed lemma or fused-form errors, and drops only confirmed extraction noise. Valid technical vocabulary remains unchanged. Apply this review to vocabulary records only; do not automatically rewrite extracted text or add PDF line-joining rules.
 7. Mine multiword noun-phrase terminology candidates from that same full text, including counts, document spread, C-value, surface forms, possible acronyms, representative sentences, and sources.
 8. Preserve that complete candidate set, then retain phrases appearing in at least 10% of the included papers as the shared-language review queue. Calculate the minimum with `ceil(included_papers × 0.10)`. Do not select a target output size or discard the raw candidate asset.
-9. Review the coverage-filtered queue once. Keep only stable shared terminology of this research direction. Reject generic academic phrases, named entities, paper-local coinages, author-specific labels, and redundant variants; do not create low-coverage exceptions. Write a contextual English explanation, Chinese explanation, concept role, and stable sense key for every retained term, but no separate selection reason. The finalized term set and its explanations must match exactly; missing explanations are a hard error.
-10. Continue into the local 30-question calibration page using this corpus's `analysis/vocabulary-map.tsv`. Store the answers and personalized result in the same `analysis/` directory. Corpus analysis alone is not the end of initialization. Keep the reviewed multiword terminology asset separate from the single-word calibration model.
+9. Review the vocabulary spelling queue and coverage-filtered terminology queue together in `analysis/domain-review-selection.json`. Keep only stable shared terminology of this research direction. Reject generic academic phrases, named entities, paper-local coinages, author-specific labels, redundant variants, and any candidate without a representative sentence tied to one of its source papers; do not create low-coverage exceptions. Supply a contextual English explanation, Chinese explanation, concept role, and stable sense key for every retained term. Run `scripts/finalize_domain_assets.py` once and require it to load both finalized outputs successfully before calibration can start.
+10. Only after terminology finalization succeeds, continue into the local 30-question calibration page using this corpus's `analysis/vocabulary-map.tsv`. Store the answers and personalized result in the same `analysis/` directory. Corpus analysis alone is not the end of initialization. Keep the reviewed multiword terminology asset separate from the single-word calibration model; its selection does not depend on calibration answers.
 
 Title and abstract are used for paper-level relevance only. Vocabulary and terminology evidence comes from full text. This first pass uses no general-English baseline, topic clustering, topic reweighting, or user-mastery inference, and it is not resized merely to reach a preferred entry count.
 
 ## Resumability
 
 - Candidate metadata and per-query provider outcomes are saved locally.
+- Successful OpenAlex and arXiv query results are reused for the same confirmed run; an explicit refresh bypasses them.
 - Existing valid PDFs are reused.
 - `download-results.jsonl` is rewritten after every attempt, so an interrupted run can continue from already valid PDFs.
+- `run-timings.json` records internal timings; it is never a lifecycle-completion signal.
+- `status.json` is the controller-owned lifecycle source. Any state with `terminal: false` requires the current host task to continue.
 
 The process remains in the current desktop task. There is no custom notification subsystem; completion is the task's ordinary final response.
 
@@ -43,10 +46,13 @@ The process remains in the current desktop task. There is no custom notification
 <confirmed-directory>/
   research-profile-input.json   Chat-confirmed input profile
   research-profile.json         Profile copied into the run record
-  status.json                   Recovery/diagnostic stage
+  status.json                   Authoritative preparation state and next actor
   candidates.jsonl             New multi-provider candidates for this run
+  candidate-review-packet.jsonl Coverage-preserving bounded host-review tranche
+  candidate-review-summary.json Review-packet and deferred-candidate counts
   search-attempts.json          Per-query provider outcomes
-  agent-candidate-selection.json Host-agent reviewed and ordered IDs
+  run-timings.json              Cross-command phase and wall-clock timings
+  candidate-review-selection.json Host-agent reviewed and ordered IDs
   papers/                       Locally stored PDFs
   download-results.jsonl        Per-paper provider attempts and result
   cold-start-summary.json       Acquisition and analysis totals
@@ -63,8 +69,11 @@ The process remains in the current desktop task. There is no custom notification
   analysis/terminology-candidates.tsv Candidates found in at least 10% of included papers
   analysis/terminology-candidates.jsonl Same coverage-filtered candidates in structured form
   analysis/terminology-review-input.json Host-review context and schema
+  analysis/terminology-review-selection.json Host-selected terms and exact explanations
   analysis/first-terminology-map.jsonl Host-reviewed domain terminology
+  analysis/first-terminology-map.tsv Same finalized terminology for export
   analysis/terminology-explanations.json Exact bilingual explanations for the reviewed terms
+  analysis/host-review-summary.json Terminology finalization counts and provenance
   analysis/vocabulary-calibration-session.json The user's 30 direct answers
   analysis/vocabulary-calibration-result.json Personalized counts, selected 75%–98% threshold, protected boundary count, and importance tiers
   analysis/personalized-vocabulary.tsv Per-word familiarity prediction, classification, importance tier, protection flag, and selected threshold

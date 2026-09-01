@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from terminology_assets import load_finalized_terminology
+
 
 SCHEMA_VERSION = 1
 DOMAIN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -68,16 +70,69 @@ def validate_registration_workspace(workspace: Path) -> dict[str, Any]:
     return profile
 
 
+def _validate_corpus_assets(
+    resolved: Path,
+    *,
+    require_review_summary: bool,
+    require_orthography_review: bool,
+) -> None:
+    required = [
+        resolved / "analysis" / "vocabulary-map.tsv",
+        resolved / "analysis" / "papers.jsonl",
+    ]
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "ResearchRamp initialization is incomplete; missing: " + ", ".join(missing)
+        )
+
+    if require_orthography_review:
+        orthography_summary = resolved / "analysis" / "orthography-review-summary.json"
+        corpus_stats = resolved / "analysis" / "corpus-stats.json"
+        missing = [
+            str(path)
+            for path in (orthography_summary, corpus_stats)
+            if not path.is_file()
+        ]
+        if missing:
+            raise FileNotFoundError(
+                "ResearchRamp initialization is incomplete; missing: "
+                + ", ".join(missing)
+            )
+        try:
+            summary = json.loads(orthography_summary.read_text(encoding="utf-8"))
+            stats = json.loads(corpus_stats.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            raise ValueError(
+                f"Invalid orthography review in workspace: {resolved}"
+            ) from error
+        if (
+            not isinstance(summary, dict)
+            or summary.get("schema_version") != 1
+            or summary.get("reviewer") != "current-host-agent"
+            or not isinstance(stats, dict)
+            or stats.get("orthography_review_applied") is not True
+        ):
+            raise ValueError(
+                f"Orthography review is not finalized in workspace: {resolved}"
+            )
+
+    load_finalized_terminology(
+        resolved,
+        require_review_summary=require_review_summary,
+    )
+
+
 def validate_initialized_workspace(workspace: Path) -> dict[str, Any]:
-    """Verify the real corpus assets required to start or resume calibration."""
+    """Verify the corpus is ready to start or resume calibration."""
 
     resolved = workspace.expanduser().resolve()
     profile = validate_registration_workspace(resolved)
-    vocabulary = resolved / "analysis" / "vocabulary-map.tsv"
-    if not vocabulary.is_file():
-        raise FileNotFoundError(
-            "ResearchRamp initialization is incomplete; missing: " + str(vocabulary)
-        )
+    _validate_corpus_assets(
+        resolved,
+        require_review_summary=True,
+        require_orthography_review=True,
+    )
     return profile
 
 
@@ -85,7 +140,12 @@ def validate_completed_workspace(workspace: Path) -> dict[str, Any]:
     """Verify that a workspace can safely appear in the unified application."""
 
     resolved = workspace.expanduser().resolve()
-    profile = validate_initialized_workspace(resolved)
+    profile = validate_registration_workspace(resolved)
+    _validate_corpus_assets(
+        resolved,
+        require_review_summary=False,
+        require_orthography_review=False,
+    )
     required = (
         resolved / "analysis" / "vocabulary-map.tsv",
         resolved / "analysis" / "vocabulary-calibration-session.json",
@@ -120,6 +180,19 @@ def validate_completed_workspace(workspace: Path) -> dict[str, Any]:
     if export_rows != int(counts.get("total") or 0):
         raise ValueError(f"ResearchRamp personalized vocabulary row count is inconsistent: {resolved}")
     return profile
+
+
+def validate_corpus_launch_workspace(workspace: Path) -> dict[str, Any]:
+    """Apply the readiness contract for this corpus's persisted lifecycle stage."""
+
+    resolved = workspace.expanduser().resolve()
+    analysis = resolved / "analysis"
+    if (
+        (analysis / "vocabulary-calibration-result.json").is_file()
+        or (analysis / "personalized-vocabulary.tsv").is_file()
+    ):
+        return validate_completed_workspace(resolved)
+    return validate_initialized_workspace(resolved)
 
 
 @dataclass(frozen=True)

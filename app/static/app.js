@@ -2,7 +2,7 @@ const byId = (id) => document.querySelector(`#${id}`);
 const all = (selector) => [...document.querySelectorAll(selector)];
 const formatCount = (value) => new Intl.NumberFormat("zh-CN").format(value || 0);
 const formatPercent = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value || 0);
-const EXPECTED_API_VERSION = 4;
+const EXPECTED_API_VERSION = 5;
 const TERMS_PER_PAGE = 20;
 const BRIEFS_PER_PAGE = 2;
 const TERM_CHECK_BATCH_SIZE = 5;
@@ -266,6 +266,15 @@ function renderAppState(state, preferredView = null) {
   currentPaper = null;
   currentReviewWord = null;
   renderDomainControls(state);
+  if (!state.standalone) {
+    const terminology = state.terminology || { count: 0, terms: [] };
+    currentTerms = terminology.terms;
+    terminologyPromise = Promise.resolve(terminology);
+    setText("termTabCount", `(${terminology.count})`);
+    setText("terminologyHeadline", `${terminology.count} 个经过质量审核的领域术语`);
+    renderTerminologyLibrary();
+    renderTermDiscoveryCard();
+  }
   if (!renderCalibration(state.calibration)) return;
 
   if (state.standalone) {
@@ -275,7 +284,6 @@ function renderAppState(state, preferredView = null) {
   }
 
   renderBriefs(state.briefs);
-  loadTerminology().catch(showError);
   const due = state.continuous?.due_count || 0;
   byId("navDueCount").hidden = due === 0;
   byId("navDueCount").textContent = due;

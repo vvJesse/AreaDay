@@ -39,6 +39,8 @@ from domain_registry import (  # noqa: E402
     DomainRegistration,
     DomainRegistry,
     validate_completed_workspace,
+    validate_corpus_launch_workspace,
+    validate_initialized_workspace,
 )
 from workbench_protocol import (  # noqa: E402
     WORKBENCH_IDENTITY_PATH,
@@ -48,7 +50,7 @@ from workbench_protocol import (  # noqa: E402
 
 
 QUESTION_LIMIT = 30
-APP_API_VERSION = 4
+APP_API_VERSION = 5
 DEFAULT_KNOWN_THRESHOLD = 0.90
 MIN_KNOWN_THRESHOLD = 0.75
 MAX_KNOWN_THRESHOLD = 0.98
@@ -236,6 +238,10 @@ class CalibrationSession:
     ):
         self.words = words
         self.by_lemma = {word.lemma: word for word in words}
+        if len(self.by_lemma) < QUESTION_LIMIT:
+            raise ValueError(
+                "Vocabulary calibration requires at least 30 unique lemmas"
+            )
         self.state_path = state_path
         self._result_path = result_path or state_path.with_name(
             "vocabulary-calibration-result.json"
@@ -869,6 +875,7 @@ class AppRuntime:
     def app_state(self, domain_id: str | None = None) -> dict[str, Any]:
         context = self.context(domain_id)
         store = context.continuous_store
+        terms = store.list_terms() if store is not None else []
         return {
             "api_version": APP_API_VERSION,
             "domain_id": context.domain_id,
@@ -877,6 +884,12 @@ class AppRuntime:
             "standalone": self.standalone,
             "initial_view": "vocabulary" if self.standalone else self.initial_view,
             "calibration": self.calibration_state(context),
+            "terminology": {
+                "count": len(terms),
+                "terms": terms,
+            }
+            if store is not None
+            else None,
             "continuous": store.summary() if store is not None else None,
             "settings": store.get_settings() if store is not None else None,
             "briefs": store.list_briefs() if store is not None else [],
@@ -1245,6 +1258,13 @@ def parse_args() -> argparse.Namespace:
         "--domain",
         help="Initial registered domain ID when --library is used.",
     )
+    parser.add_argument(
+        "--ready-calibration-domain",
+        help=(
+            "Registered domain whose corpus and terminology are finalized but "
+            "whose 30-answer calibration may still be incomplete."
+        ),
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
@@ -1322,9 +1342,14 @@ def _workspace_context(
     cefr_levels: dict[str, str] | None,
     exam_tags: dict[str, tuple[str, ...]] | None,
     learning_store: GlobalLearningStore,
+    *,
+    allow_incomplete_calibration: bool = False,
 ) -> DomainContext:
     workspace = Path(registration.workspace).resolve()
-    validate_completed_workspace(workspace)
+    if allow_incomplete_calibration:
+        validate_initialized_workspace(workspace)
+    else:
+        validate_completed_workspace(workspace)
     vocabulary = workspace / "analysis" / "vocabulary-map.tsv"
     state = workspace / "analysis" / "vocabulary-calibration-session.json"
     words = load_words(vocabulary, cefr_levels, exam_tags, args.exam_profile)
@@ -1335,6 +1360,7 @@ def _workspace_context(
             display_name=registration.display_name,
             learning_store=learning_store,
         )
+        continuous_store.terminology_catalog().list_terms()
     except (OSError, sqlite3.Error) as error:
         raise RuntimeError(
             "ResearchRamp could not initialize domain state for "
@@ -1352,6 +1378,9 @@ def _workspace_context(
 def build_runtime(args: argparse.Namespace) -> AppRuntime:
     cefr_levels, exam_tags = _education_assets(args)
     if args.library is not None:
+        ready_calibration_domain = getattr(
+            args, "ready_calibration_domain", None
+        )
         if args.state is not None or args.label is not None:
             raise ValueError("--state and --label cannot be combined with --library")
         registry = DomainRegistry(args.library)
@@ -1369,10 +1398,20 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
                 "ResearchRamp could not initialize global learning state at "
                 f"{global_learning_path}: {error}"
             ) from error
+        if (
+            ready_calibration_domain is not None
+            and args.domain != ready_calibration_domain
+        ):
+            raise ValueError(
+                "--ready-calibration-domain must equal the explicitly selected --domain"
+            )
         completed_registrations = []
         for item in registry.domains:
             try:
-                validate_completed_workspace(Path(item.workspace))
+                if item.domain_id == ready_calibration_domain:
+                    validate_initialized_workspace(Path(item.workspace))
+                else:
+                    validate_completed_workspace(Path(item.workspace))
             except FileNotFoundError:
                 continue
             completed_registrations.append(item)
@@ -1389,7 +1428,16 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
                 f"ResearchRamp domain is registered but initialization is incomplete: {args.domain}"
             )
         contexts = [
-            _workspace_context(item, args, cefr_levels, exam_tags, learning_store)
+            _workspace_context(
+                item,
+                args,
+                cefr_levels,
+                exam_tags,
+                learning_store,
+                allow_incomplete_calibration=(
+                    item.domain_id == ready_calibration_domain
+                ),
+            )
             for item in completed_registrations
         ]
         for context in contexts:
@@ -1418,8 +1466,12 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
             instance_id=args.instance_id,
         )
     else:
+        if getattr(args, "ready_calibration_domain", None) is not None:
+            raise ValueError("--ready-calibration-domain requires --library")
         if args.domain is not None:
             raise ValueError("--domain requires --library")
+        if args.corpus is not None:
+            validate_corpus_launch_workspace(args.corpus)
         vocabulary_path, state_path, corpus_label = resolve_calibration_paths(args)
         words = load_words(vocabulary_path, cefr_levels, exam_tags, args.exam_profile)
         workspace = args.corpus.resolve() if args.corpus is not None else None
@@ -1436,6 +1488,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
                     domain_id="current-domain",
                     display_name=corpus_label,
                 )
+                continuous_store.terminology_catalog().list_terms()
             except (OSError, sqlite3.Error) as error:
                 raise RuntimeError(
                     "ResearchRamp could not initialize corpus state at "

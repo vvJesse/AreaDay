@@ -22,6 +22,14 @@ def load_fixture() -> dict:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def write_empty_terminology_assets(workspace: Path) -> None:
+    analysis = workspace / "analysis"
+    analysis.mkdir(parents=True, exist_ok=True)
+    (analysis / "papers.jsonl").write_text("", encoding="utf-8")
+    (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
+    (analysis / "terminology-explanations.json").write_text("{}\n", encoding="utf-8")
+
+
 def write_prepared_run(
     workspace: Path,
     run_name: str,
@@ -29,11 +37,11 @@ def write_prepared_run(
     *,
     packet_workspace: Path | None = None,
 ) -> tuple[Path, Path]:
+    write_empty_terminology_assets(workspace)
     run_dir = workspace / "continuous" / "working" / run_name
     run_dir.mkdir(parents=True)
     output = run_dir / "brief-agent-output.json"
     output.write_text(json.dumps(payload), encoding="utf-8")
-    first = payload["items"][0]
     packet = {
         "schema_version": 1,
         "run_id": run_name,
@@ -41,20 +49,7 @@ def write_prepared_run(
         "agent_output_path": str(output.resolve()),
         "paper_items": [
             {
-                "candidate_id": first["item_id"],
-                "item_type": first["item_type"],
-                "title": first["title"],
-                "source_url": first["source_url"],
-                "source_provenance": first.get("source_provenance"),
-                "vocabulary_candidates": [
-                    {"lemma": word["lemma"], "context": word["context"]}
-                    for word in first["vocabulary"]
-                ],
-            }
-        ],
-        "supplementary_items": [
-            {
-                "item_id": item["item_id"],
+                "candidate_id": item["item_id"],
                 "item_type": item["item_type"],
                 "title": item["title"],
                 "source_url": item["source_url"],
@@ -64,7 +59,7 @@ def write_prepared_run(
                     for word in item["vocabulary"]
                 ],
             }
-            for item in payload["items"][1:]
+            for item in payload["items"]
         ],
     }
     (run_dir / "agent-brief-input.json").write_text(
@@ -79,6 +74,7 @@ class ContinuousStateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temporary.name)
+        write_empty_terminology_assets(self.workspace)
         self.store = ContinuousStore(
             self.workspace, domain_id="alpha", display_name="Domain Alpha"
         )
@@ -99,13 +95,13 @@ class ContinuousStateTests(unittest.TestCase):
         self.assertEqual(self.store.summary()["learning_count"], 3)
 
         first = self.store.due_words(limit=1)[0]
-        self.store.review(first.lemma, "good")
+        self.store.review(first.item_id, "good")
         self.assertEqual(self.store.summary()["due_count"], 2)
 
         second = self.store.due_words(limit=1)[0]
-        self.store.mark_known(second.lemma)
+        self.store.mark_item_mastered(second.item_id)
         summary = self.store.summary()
-        self.assertEqual(summary["known_count"], 1)
+        self.assertEqual(summary["mastered_count"], 1)
         self.assertEqual(summary["due_count"], 1)
 
     def test_idempotent_brief_import_preserves_preheat_sources(self) -> None:

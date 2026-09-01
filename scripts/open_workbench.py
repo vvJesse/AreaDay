@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote
 
-from domain_registry import DomainRegistry, validate_completed_workspace
+from domain_registry import (
+    DomainRegistry,
+    validate_completed_workspace,
+    validate_initialized_workspace,
+)
 from workbench_protocol import (
     WORKBENCH_IDENTITY_PATH,
     WORKBENCH_IDENTITY_VERSION,
@@ -82,6 +86,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--view", choices=VIEWS, default="vocabulary")
     parser.add_argument("--registry", type=Path)
     parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument(
+        "--ready-calibration-domain",
+        help=(
+            "Include one registered domain whose vocabulary and terminology are "
+            "ready while its 30-answer calibration is still incomplete."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -248,7 +259,10 @@ def probe_workbench(
     return ProbeResult(ProbeKind.MATCH, identity=identity)
 
 
-def completed_registry_domain_ids(registry: DomainRegistry) -> tuple[str, ...]:
+def launchable_registry_domain_ids(
+    registry: DomainRegistry,
+    ready_calibration_domain: str | None = None,
+) -> tuple[str, ...]:
     if not registry.domains:
         raise RuntimeError(
             "No ResearchRamp domain is registered; run initialization first"
@@ -256,11 +270,18 @@ def completed_registry_domain_ids(registry: DomainRegistry) -> tuple[str, ...]:
     completed: list[str] = []
     for item in registry.domains:
         try:
-            validate_completed_workspace(Path(item.workspace))
+            if item.domain_id == ready_calibration_domain:
+                validate_initialized_workspace(Path(item.workspace))
+            else:
+                validate_completed_workspace(Path(item.workspace))
         except FileNotFoundError:
             continue
         completed.append(item.domain_id)
     return tuple(completed)
+
+
+def completed_registry_domain_ids(registry: DomainRegistry) -> tuple[str, ...]:
+    return launchable_registry_domain_ids(registry)
 
 
 def select_registry_domain(
@@ -303,6 +324,8 @@ def start_workbench(
     domain_id: str,
     view: str,
     port: int,
+    *,
+    ready_calibration_domain: str | None = None,
 ) -> LaunchAttempt:
     skill_root = Path(__file__).resolve().parents[1]
     server = skill_root / "app" / "server.py"
@@ -325,6 +348,10 @@ def start_workbench(
         instance_id,
         "--no-browser",
     ]
+    if ready_calibration_domain is not None:
+        command.extend(
+            ["--ready-calibration-domain", ready_calibration_domain]
+        )
     flags = 0
     if os.name == "nt":
         flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
@@ -591,18 +618,45 @@ def main() -> None:
         else skill_root / "researchramp-data" / "real-domains.json"
     )
     registry = DomainRegistry(registry_path)
-    completed_domain_ids = completed_registry_domain_ids(registry)
+    ready_calibration_domain = getattr(
+        args, "ready_calibration_domain", None
+    )
+    if (
+        ready_calibration_domain is not None
+        and args.domain != ready_calibration_domain
+    ):
+        raise RuntimeError(
+            "--ready-calibration-domain must equal the explicitly selected --domain"
+        )
+    completed_domain_ids = launchable_registry_domain_ids(
+        registry,
+        ready_calibration_domain,
+    )
     domain_id = select_registry_domain(
         registry,
         args.domain,
         completed_domain_ids,
     )
+    starter = None
+    if ready_calibration_domain is not None:
+        starter = lambda path, domain, view, port: start_workbench(
+            path,
+            domain,
+            view,
+            port,
+            ready_calibration_domain=ready_calibration_domain,
+        )
+    ensure_kwargs: dict[str, Any] = {
+        "expected_domain_ids": completed_domain_ids,
+    }
+    if starter is not None:
+        ensure_kwargs["starter"] = starter
     result = ensure_workbench(
         registry_path,
         domain_id,
         args.view,
         args.port,
-        expected_domain_ids=completed_domain_ids,
+        **ensure_kwargs,
     )
     print(json.dumps(result, ensure_ascii=False))
 

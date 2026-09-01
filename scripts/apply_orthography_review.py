@@ -22,6 +22,10 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 def validate_selection(
     selection: dict[str, Any], review_input: dict[str, Any]
 ) -> tuple[dict[str, str], set[str]]:
+    if selection.get("schema_version") != 1:
+        raise ValueError("Orthography review must use schema_version 1")
+    if selection.get("reviewer") != "current-host-agent":
+        raise ValueError("Orthography review reviewer must be current-host-agent")
     candidates = {
         str(item["observed_lemma"])
         for item in review_input.get("candidates", [])
@@ -132,15 +136,10 @@ def merge_vocabulary(
     return merged
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--workspace", type=Path, required=True)
-    parser.add_argument("--selection", type=Path, required=True)
-    args = parser.parse_args()
-
-    analysis_dir = args.workspace.resolve() / "analysis"
+def finalize_review(workspace: Path, selection_path: Path) -> dict[str, int]:
+    analysis_dir = workspace.resolve() / "analysis"
     review_input = read_json(analysis_dir / "orthography-review-input.json")
-    selection = read_json(args.selection.resolve())
+    selection = read_json(selection_path.resolve())
     replacements, drops = validate_selection(selection, review_input)
     vocabulary = read_jsonl(analysis_dir / "pre-orthography-vocabulary-map.jsonl")
     stats = read_json(analysis_dir / "corpus-stats.json")
@@ -172,7 +171,7 @@ def main() -> int:
         {
             "schema_version": 1,
             "generated_at": utc_now(),
-            "reviewer": selection.get("reviewer", "current-host-agent"),
+            "reviewer": selection["reviewer"],
             "reviewed_candidate_count": len(review_input.get("candidates", [])),
             "replacement_count": len(replacements),
             "drop_count": len(drops),
@@ -184,16 +183,19 @@ def main() -> int:
             "review_summary": selection.get("review_summary", ""),
         },
     )
-    print(
-        json.dumps(
-            {
-                "vocabulary_entry_count": len(merged),
-                "replacement_count": len(replacements),
-                "drop_count": len(drops),
-            },
-            indent=2,
-        )
-    )
+    return {
+        "vocabulary_entry_count": len(merged),
+        "replacement_count": len(replacements),
+        "drop_count": len(drops),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--selection", type=Path, required=True)
+    args = parser.parse_args()
+    print(json.dumps(finalize_review(args.workspace, args.selection), indent=2))
     return 0
 
 
