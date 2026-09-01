@@ -1,4 +1,5 @@
 arxiv==4.0.1
+cryptography==50.0.1
 fsrs==6.3.2
 pypdf==6.16.2
 pymupdf==1.26.4

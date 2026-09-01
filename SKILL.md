@@ -5,6 +5,21 @@ description: "Build a local research area and personal domain vocabulary, view o
 
 # ResearchRamp
 
+## Development license preview
+
+The current licensing milestone is an isolated development preview. It lets the
+user experience device identification, activation-key entry, automatic signed
+license installation, and status inspection. It does not yet gate the research
+workflows below.
+
+Treat requests to show the ResearchRamp device code, activate ResearchRamp,
+install an explicitly supplied recovery `.rrlicense` file, or inspect the
+installed development license as license operations. Read
+[license-activation.md](references/license-activation.md), then run exactly the
+matching command from that reference. The ordinary activation flow accepts an
+activation key and automatically installs the returned license; the user never
+manually copies a license into an application-data directory.
+
 ResearchRamp has four user-facing capability groups:
 
 - **首次建立**: establish a confirmed research area and build its personal
