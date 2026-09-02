@@ -19,8 +19,8 @@ from build_release import build_release  # noqa: E402
 class ReleasePackageTests(unittest.TestCase):
     def test_release_is_an_areaday_skill_zip_with_an_explicit_safe_allowlist(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "AreaDay-v1.0.2.zip"
-            manifest = build_release(ROOT, output, version="1.0.2")
+            output = Path(temporary) / "AreaDay-v1.0.3.zip"
+            manifest = build_release(ROOT, output, version="1.0.3")
 
             self.assertEqual(manifest["artifact"], output.name)
             self.assertRegex(manifest["sha256"], r"^[0-9a-f]{64}$")
@@ -64,7 +64,7 @@ class ReleasePackageTests(unittest.TestCase):
     def test_platform_release_embeds_only_its_matching_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            runtime = root / "AreaDay-runtime-windows-x64-v1.0.2.zip"
+            runtime = root / "AreaDay-runtime-windows-x64-v1.0.3.zip"
             with zipfile.ZipFile(runtime, "w") as archive:
                 archive.writestr(
                     "runtime/runtime.json",
@@ -72,16 +72,16 @@ class ReleasePackageTests(unittest.TestCase):
                         {
                             "schema_version": 1,
                             "product": "areaday",
-                            "runtime_version": "1.0.2",
+                            "runtime_version": "1.0.3",
                             "platform": "windows-x64",
                         }
                     ),
                 )
-            output = root / "AreaDay-windows-x64-v1.0.2.zip"
+            output = root / "AreaDay-windows-x64-v1.0.3.zip"
             result = build_release(
                 ROOT,
                 output,
-                version="1.0.2",
+                version="1.0.3",
                 runtime_archive=runtime,
                 platform="windows-x64",
             )
