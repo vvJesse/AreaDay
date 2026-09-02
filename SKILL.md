@@ -5,12 +5,13 @@ description: "Build a local research area and personal domain vocabulary, view o
 
 # ResearchRamp
 
-## Development license preview
+## Development license gate
 
-The current licensing milestone is an isolated development preview. It lets the
-user experience device identification, activation-key entry, automatic signed
-license installation, and status inspection. It does not yet gate the research
-workflows below.
+The current licensing milestone uses an isolated development license. A valid
+installed license is required before initialization, workbench launch, brief
+generation, or schedule configuration can perform business work. These public
+entrypoints all enforce the same offline verifier before reading or changing a
+research workspace.
 
 Treat requests to show the ResearchRamp device code, activate ResearchRamp,
 install an explicitly supplied recovery `.rrlicense` file, or inspect the
@@ -19,6 +20,12 @@ installed development license as license operations. Read
 matching command from that reference. The ordinary activation flow accepts an
 activation key and automatically installs the returned license; the user never
 manually copies a license into an application-data directory.
+
+When a business entrypoint returns `license_required`, report its exact `code`
+and `error`, then offer the matching device-code, activation, status, or recovery
+installation operation. Do not retry the business operation through a helper
+script or another entrypoint. License checking is offline and must not be
+reported as an activation-service or ordinary research-network failure.
 
 ResearchRamp has four user-facing capability groups:
 

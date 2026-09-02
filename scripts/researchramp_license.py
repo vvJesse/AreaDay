@@ -33,6 +33,9 @@ MAX_LICENSE_BYTES = 65_536
 MAX_PAYLOAD_BYTES = 16_384
 DEVICE_ID_PATTERN = re.compile(r"^RRD1-(?:MAC|WIN)-[A-Z2-7]{52}$")
 KEY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+BUSINESS_OPERATIONS = frozenset(
+    {"initialization", "workbench", "brief_generation", "scheduling"}
+)
 
 # The development public key is safe to distribute.  Its private half lives
 # outside the ResearchRamp repository and is never included in the Skill.
@@ -48,8 +51,7 @@ DEVELOPMENT_PUBLIC_KEYS: dict[str, bytes] = {
     ),
 }
 DEFAULT_DEVELOPMENT_ACTIVATION_SERVER = (
-    "https://researchramp-license-development."
-    "researchramp-license-development.workers.dev"
+    "https://license-dev.areaday.app"
 )
 MAX_ACTIVATION_RESPONSE_BYTES = 131_072
 
@@ -703,6 +705,52 @@ def development_verifier() -> LicenseVerifier:
 
 def _output(status: str, **values: Any) -> None:
     print(json.dumps({"status": status, **values}, ensure_ascii=False, indent=2))
+
+
+def require_business_license(
+    operation: str,
+    *,
+    verifier: LicenseVerifier | None = None,
+    license_path: Path | None = None,
+    device_id: str | None = None,
+) -> LicenseInfo:
+    """Verify one public business operation using only the installed license."""
+
+    if operation not in BUSINESS_OPERATIONS:
+        raise ValueError(f"Unknown ResearchRamp business operation: {operation}")
+    selected_verifier = verifier or development_verifier()
+    selected_path = license_path or development_license_path()
+    selected_device = device_id or current_device_id()
+    return selected_verifier.status(
+        selected_path,
+        current_device_id=selected_device,
+    )
+
+
+def enforce_business_license(
+    operation: str,
+    *,
+    verifier: LicenseVerifier | None = None,
+    license_path: Path | None = None,
+    device_id: str | None = None,
+) -> LicenseInfo:
+    """Stop a public business entrypoint before side effects when unlicensed."""
+
+    try:
+        return require_business_license(
+            operation,
+            verifier=verifier,
+            license_path=license_path,
+            device_id=device_id,
+        )
+    except LicenseError as error:
+        _output(
+            "license_required",
+            operation=operation,
+            code=error.code,
+            error=str(error),
+        )
+        raise SystemExit(3) from None
 
 
 def parse_args() -> argparse.Namespace:

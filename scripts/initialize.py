@@ -40,6 +40,7 @@ from open_workbench import (
     start_workbench,
 )
 from research_profile import validate_profile
+from researchramp_license import enforce_business_license
 from researchramp_core import read_json, utc_now, write_json
 from terminology_assets import load_finalized_terminology
 
@@ -552,6 +553,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    enforce_business_license("initialization")
     controller = InitializationController(args)
     try:
         if args.command == "status":

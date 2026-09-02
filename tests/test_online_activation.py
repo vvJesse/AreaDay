@@ -127,8 +127,7 @@ class OnlineActivationClientTests(unittest.TestCase):
     def test_default_activation_service_is_the_cloudflare_development_worker(self) -> None:
         self.assertEqual(
             researchramp_license.DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
-            "https://researchramp-license-development."
-            "researchramp-license-development.workers.dev",
+            "https://license-dev.areaday.app",
         )
 
     def test_activation_installs_a_server_signed_license_that_remains_offline(self) -> None:

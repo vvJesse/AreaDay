@@ -24,11 +24,10 @@ key and current device code to the configured development service, validates
 the returned signature, and atomically installs the license. Never ask the user
 to locate or move the resulting license file.
 
-The default development endpoint is the isolated HTTPS Cloudflare Worker. A
-network that blocks or incorrectly resolves `workers.dev` may return
+The default development endpoint is the isolated HTTPS Cloudflare Worker at
+`https://license-dev.areaday.app`. A connection failure may return
 `activation_service_unavailable`. Do not weaken TLS, use an unofficial proxy,
-or treat that network error as a bad key. A future production endpoint will use
-a separately owned domain.
+or treat that network error as a bad key.
 
 `install` remains a recovery and compatibility operation. Use only the absolute
 path of the `.rrlicense` file the user explicitly attached or named. Do not
@@ -60,7 +59,7 @@ An activation-service connection failure affects only new activation. It does
 not invalidate a license that is already installed, and it must not be reported
 as an invalid local license.
 
-This milestone does not authorize claiming that ResearchRamp's research
-features are license-gated, that the Cloudflare development service is the
-production service, or that the protected core has been compiled. Those belong
-to later milestones.
+The four public ResearchRamp business entrypoints are development-license
+gated. This milestone does not authorize claiming that the development service
+is the production service, that the gate resists source-code modification, or
+that the protected core has been compiled. Those belong to later milestones.

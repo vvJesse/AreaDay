@@ -24,6 +24,7 @@ from domain_registry import (
     validate_completed_workspace,
     validate_initialized_workspace,
 )
+from researchramp_license import enforce_business_license
 from workbench_protocol import (
     WORKBENCH_IDENTITY_PATH,
     WORKBENCH_IDENTITY_VERSION,
@@ -611,6 +612,7 @@ def ensure_workbench(
 
 def main() -> None:
     args = parse_args()
+    enforce_business_license("workbench")
     skill_root = Path(__file__).resolve().parents[1]
     registry_path = (
         args.registry.expanduser().resolve()
