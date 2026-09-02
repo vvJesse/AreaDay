@@ -11,7 +11,9 @@ and one activation-key string beginning with `AD1-`. Choose exactly one ZIP:
 | --- | --- |
 | Windows 64-bit | `AreaDay-windows-x64-v<version>.zip` |
 | Apple silicon Mac (M1 or newer) | `AreaDay-macos-arm64-v<version>.zip` |
-| Intel Mac | `AreaDay-macos-x64-v<version>.zip` |
+
+Intel Macs are not currently supported. Do not give an Apple silicon package
+to an Intel Mac customer; handle such requests separately.
 
 The ZIP already contains Python, all Python packages, the spaCy model, and the
 embedding model for that operating system. The first setup therefore verifies

@@ -29,7 +29,6 @@ VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 PLATFORM_IDS = {
     ("darwin", "arm64"): "macos-arm64",
     ("darwin", "aarch64"): "macos-arm64",
-    ("darwin", "x86_64"): "macos-x64",
     ("win32", "amd64"): "windows-x64",
     ("win32", "x86_64"): "windows-x64",
 }

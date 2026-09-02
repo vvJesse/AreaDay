@@ -69,9 +69,8 @@ fi
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64|Darwin-aarch64) PLATFORM_ID="macos-arm64" ;;
-  Darwin-x86_64) PLATFORM_ID="macos-x64" ;;
   *)
-    echo "This AreaDay installer supports macOS arm64 and macOS x64 only." >&2
+    echo "This AreaDay installer supports Apple silicon Macs only." >&2
     exit 1
     ;;
 esac
