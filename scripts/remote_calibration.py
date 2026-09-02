@@ -91,7 +91,14 @@ class RemoteCalibrationClient:
         self.timeout = timeout
 
     def request(self, action: str, payload: dict[str, object]) -> dict[str, object]:
-        if action not in {"start", "state", "answer", "threshold", "reset"}:
+        if action not in {
+            "preflight",
+            "start",
+            "state",
+            "answer",
+            "threshold",
+            "reset",
+        }:
             raise ValueError(f"Unknown calibration action: {action}")
         encoded = json.dumps(
             payload,

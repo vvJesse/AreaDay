@@ -9,6 +9,13 @@ Use this reference only when establishing or rebuilding a research domain. An
 ordinary request to open vocabulary, briefs, review, or domain switching uses
 the fast path in `SKILL.md`.
 
+Before asking the domain questions below, run the prediction preflight required
+by `SKILL.md`. A missing or invalid license stops before paper collection. A
+temporary prediction-service outage is not a license failure: explain that the
+local mini corpus can still be prepared but the 30-question calibration and
+personal vocabulary cannot finish unless the service becomes available, then
+wait for the user's explicit choice to continue or postpone.
+
 ## The lifecycle contract
 
 There is one uninterrupted preparation operation:

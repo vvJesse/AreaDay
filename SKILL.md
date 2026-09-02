@@ -29,6 +29,31 @@ personalized vocabulary uses the licensed AreaDay prediction service after the
 mini corpus is complete; an unreachable predictor must not be reported as an
 invalid license.
 
+Perform the license check at the start of a concrete product request, before
+asking product-specific follow-up questions or reading a workspace:
+
+- For establishing, building, or rebuilding a personal domain vocabulary, run
+  `.venv/bin/python scripts/prediction_preflight.py` exactly once. This sends
+  only the installed license envelope—no profile, papers, vocabulary, or user
+  content. On `prediction_ready`, continue normally. On `license_required`,
+  explain the license problem and offer activation; do not begin profile review
+  or paper collection. On `prediction_service_unavailable`, tell the user:
+
+  > AreaDay 暂时无法确认个人词表预测服务。你仍可继续收集和分析论文，但如果
+  > 服务届时仍不可用，将无法完成 30 题校准和生成个人词表。是否仍继续？
+
+  Wait for the user's decision before collecting papers. Never describe this
+  network result as an invalid license.
+- For opening or using the workbench, generating a brief, or configuring a
+  schedule or reminder, run
+  `.venv/bin/python scripts/researchramp_license.py status` first. On
+  `license_valid`, continue. On `license_error`, explain it and offer the
+  matching activation operation before doing other product work.
+
+Do not repeat the conversational precheck during one uninterrupted operation;
+the public scripts still enforce the local license again at their actual
+side-effect boundary.
+
 ResearchRamp has four user-facing capability groups:
 
 - **首次建立**: establish a confirmed research area and build its personal
