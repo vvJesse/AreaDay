@@ -47,6 +47,11 @@ Do not call the whole initialization complete at that handoff. Full
 initialization completes only after the user submits 30 answers and the result
 and personalized TSV are verified.
 
+The mini corpus is built locally. When calibration starts, the Skill sends only
+the compact word statistics listed in `vocabulary-calibration.md` plus the
+user's isolated-word answers to the licensed predictor. PDFs, extracted text,
+sentences, paper sources, and local paths never leave the confirmed workspace.
+
 ## Prepare the local runtime
 
 Run commands from this Skill root. First check the Skill-local runtime.
@@ -217,9 +222,11 @@ same compatible live service when present. Weekly scheduling follows
 
 ## Invariants
 
-- All data stays in the user-confirmed workspace and this Skill instance's own
-  explicit registry. Never scan the filesystem, infer another workspace, or
-  copy domain data from another Skill installation.
+- All documents and content stay in the user-confirmed workspace, and the Skill
+  instance uses only its own explicit registry. The sole product-service data
+  exception is the minimal word statistics and isolated-word answers required
+  by the licensed predictor. Never scan the filesystem, infer another
+  workspace, or copy domain data from another Skill installation.
 - Vocabulary and terminology are both derived from retained full text. Titles
   and abstracts are for paper-level relevance only.
 - Calibration never selects, removes, or redefines terminology.

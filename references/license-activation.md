@@ -59,7 +59,15 @@ An activation-service connection failure affects only new activation. It does
 not invalidate a license that is already installed, and it must not be reported
 as an invalid local license.
 
+Creating a new personalized vocabulary is a separate licensed online operation.
+After the local mini corpus exists, the workbench sends only compact word
+statistics and isolated-word answers to the same development endpoint. It never
+sends PDFs, extracted text, sentences, source papers, URLs, or local paths.
+`calibration_service_unavailable` means that the prediction service could not be
+reached; it does not mean the installed license is invalid. A previously
+completed local result remains viewable while the service is unavailable.
+
 The four public ResearchRamp business entrypoints are development-license
-gated. This milestone does not authorize claiming that the development service
-is the production service, that the gate resists source-code modification, or
-that the protected core has been compiled. Those belong to later milestones.
+gated. The familiarity-prediction core is now server-side, so changing the local
+gate cannot reproduce that protected function. This development service is not
+the production sales environment and must not be described as one.

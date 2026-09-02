@@ -44,14 +44,14 @@ def make_word(index: int) -> object:
         document_count=max(2, 20 - index // 2),
         document_share=0.2,
         zipf=4.0,
-        frequency_prior_probability=0.6,
         cefr_level=None,
-        cefr_adjustment=0.0,
         exam_tags=(),
-        exam_adjustment=0.0,
-        education_adjustment=0.0,
-        prior_probability=0.6,
     )
+
+
+class NoNetworkClient:
+    def request(self, _action: str, _payload: dict) -> dict:
+        raise AssertionError("completed domain fixtures must remain offline")
 
 
 def create_completed_workspace(root: Path, domain_id: str, label: str) -> tuple:
@@ -96,12 +96,61 @@ def create_completed_workspace(root: Path, domain_id: str, label: str) -> tuple:
     )
     words = [make_word(index) for index in range(30)]
     state = analysis / "vocabulary-calibration-session.json"
-    session = APP.CalibrationSession(words, state, label)
-    while not session.public_state()["complete"]:
-        current = session.next_word()
-        assert current is not None
-        response = "known" if int(current.lemma.replace("sharedword", "")) % 2 else "unknown"
-        session.answer(current.lemma, response)
+    answers = [
+        {
+            "lemma": item.lemma,
+            "response": "known" if index % 2 else "unknown",
+        }
+        for index, item in enumerate(words)
+    ]
+    state.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "remote_session_id": f"{domain_id}-completed-fixture",
+                "answers": answers,
+            }
+        ),
+        encoding="utf-8",
+    )
+    export = analysis / "personalized-vocabulary.tsv"
+    export.write_text(
+        "lemma\tclassification\n"
+        + "".join(
+            f"{item.lemma}\t{'likely_known' if index % 2 else 'likely_unknown'}\n"
+            for index, item in enumerate(words)
+        ),
+        encoding="utf-8",
+    )
+    result = {
+        "counts": {
+            "total": 30,
+            "likely_known": 15,
+            "uncertain": 0,
+            "likely_unknown": 15,
+            "remaining_after_conservative_exclusion": 15,
+            "important_boundary_protected": 0,
+        },
+        "threshold": {"selected_percent": 90},
+        "importance": {"tiers": []},
+        "known_boundary": [],
+        "remaining_boundary": [],
+        "answers": answers,
+        "personalized_vocabulary_sha256": hashlib.sha256(
+            export.read_bytes()
+        ).hexdigest(),
+    }
+    (analysis / "vocabulary-calibration-result.json").write_text(
+        json.dumps(result),
+        encoding="utf-8",
+    )
+    session = APP.RemoteCalibrationSession(
+        words,
+        state,
+        label,
+        client=NoNetworkClient(),
+        license_path=analysis / "missing-license.rrlicense",
+    )
     store = ContinuousStore(workspace, domain_id=domain_id, display_name=label)
     brief = json.loads(FIXTURE.read_text(encoding="utf-8"))
     brief["headline"] = f"TEST FIXTURE — {label} brief"
@@ -185,9 +234,7 @@ class DomainIsolationTests(unittest.TestCase):
             beta_store.automation_handoff()["weekly_brief"]["automation_key"],
         )
 
-        beta_result_before_threshold = digest(beta_result)
-        self.runtime.context("alpha").session.set_threshold_percent(95)
-        self.assertEqual(digest(beta_result), beta_result_before_threshold)
+        self.assertEqual((digest(beta_result), digest(beta_export)), beta_before)
 
     def test_app_state_switches_all_domain_scoped_views_together(self) -> None:
         alpha = self.runtime.app_state("alpha")

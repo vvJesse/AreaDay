@@ -24,8 +24,10 @@ manually copies a license into an application-data directory.
 When a business entrypoint returns `license_required`, report its exact `code`
 and `error`, then offer the matching device-code, activation, status, or recovery
 installation operation. Do not retry the business operation through a helper
-script or another entrypoint. License checking is offline and must not be
-reported as an activation-service or ordinary research-network failure.
+script or another entrypoint. Ordinary gate checking is offline. Creating a new
+personalized vocabulary uses the licensed AreaDay prediction service after the
+mini corpus is complete; an unreachable predictor must not be reported as an
+invalid license.
 
 ResearchRamp has four user-facing capability groups:
 
@@ -206,5 +208,9 @@ Never treat a research brief as necessarily weekly. Repeated scheduling updates
 the task with the same `automation_key`; it must not create duplicates. Do not
 read the continuous workflow for ordinary viewing or review.
 
-All corpora, vocabulary, briefs, settings, and learning records remain in the
-user-confirmed local ResearchRamp directories.
+PDFs, extracted text, source metadata, corpora, briefs, settings, and learning
+records remain in the user-confirmed local ResearchRamp directories. During a
+new 30-question vocabulary calibration, the licensed predictor receives only
+the compact word statistics and isolated-word answers defined in
+`references/vocabulary-calibration.md`. The final result is saved locally and
+can be viewed later without contacting the predictor.
