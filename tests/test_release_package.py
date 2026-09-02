@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import json
 from pathlib import Path
 
 
@@ -59,6 +60,39 @@ class ReleasePackageTests(unittest.TestCase):
                     Path(temporary) / "AreaDay-latest.zip",
                     version="latest",
                 )
+
+    def test_platform_release_embeds_only_its_matching_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "AreaDay-runtime-windows-x64-v1.0.0.zip"
+            with zipfile.ZipFile(runtime, "w") as archive:
+                archive.writestr(
+                    "runtime/runtime.json",
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "product": "areaday",
+                            "runtime_version": "1.0.0",
+                            "platform": "windows-x64",
+                        }
+                    ),
+                )
+            output = root / "AreaDay-windows-x64-v1.0.0.zip"
+            result = build_release(
+                ROOT,
+                output,
+                version="1.0.0",
+                runtime_archive=runtime,
+                platform="windows-x64",
+            )
+            with zipfile.ZipFile(output) as archive:
+                names = set(archive.namelist())
+                release = json.loads(archive.read("areaday/release.json"))
+
+            self.assertEqual(result["platform"], "windows-x64")
+            self.assertIn(f"areaday/runtime-packs/{runtime.name}", names)
+            self.assertEqual(release["platform"], "windows-x64")
+            self.assertEqual(release["runtime_artifact"], runtime.name)
 
 
 if __name__ == "__main__":

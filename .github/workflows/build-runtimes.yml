@@ -1,0 +1,126 @@
+name: Build AreaDay runtimes
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (MAJOR.MINOR.PATCH)
+        required: true
+        default: 1.0.0
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2025
+          - platform: macos-arm64
+            runner: macos-15
+          - platform: macos-x64
+            runner: macos-15-intel
+
+    env:
+      AREADAY_VERSION: ${{ inputs.version }}
+      AREADAY_PLATFORM: ${{ matrix.platform }}
+      UV_TORCH_BACKEND: cpu
+      TOKENIZERS_PARALLELISM: "false"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: 0.12.6
+          enable-cache: true
+
+      - name: Select build Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Confirm dependency lock
+        run: uv lock --check
+
+      - name: Build native runtime
+        shell: bash
+        run: |
+          mkdir -p dist
+          python scripts/build_runtime.py \
+            --version "$AREADAY_VERSION" \
+            --platform "$AREADAY_PLATFORM" \
+            --output "dist/AreaDay-runtime-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip"
+
+      - name: Build customer delivery bundle
+        shell: bash
+        run: |
+          python scripts/build_release.py \
+            --version "$AREADAY_VERSION" \
+            --platform "$AREADAY_PLATFORM" \
+            --runtime-archive "dist/AreaDay-runtime-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip" \
+            --output "dist/AreaDay-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip"
+
+      - name: Verify macOS delivery without network installation
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          delivery_dir=$(mktemp -d "$RUNNER_TEMP/areaday-delivery.XXXXXX")
+          ditto -x -k "dist/AreaDay-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip" "$delivery_dir"
+          RESEARCHRAMP_RUNTIME_DIR="$delivery_dir/runtime-cache" \
+          RESEARCHRAMP_MODEL_DIR="$delivery_dir/models" \
+          AREADAY_DATA_DIR="$delivery_dir/data" \
+          sh "$delivery_dir/areaday/scripts/install.sh" --runtime-only
+
+      - name: Verify Windows delivery without network installation
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $DeliveryDir = Join-Path $env:RUNNER_TEMP ("areaday-delivery-" + [Guid]::NewGuid().ToString("N"))
+          Expand-Archive -LiteralPath "dist/AreaDay-$env:AREADAY_PLATFORM-v$env:AREADAY_VERSION.zip" -DestinationPath $DeliveryDir
+          $env:RESEARCHRAMP_RUNTIME_DIR = Join-Path $DeliveryDir "runtime-cache"
+          $env:RESEARCHRAMP_MODEL_DIR = Join-Path $DeliveryDir "models"
+          $env:AREADAY_DATA_DIR = Join-Path $DeliveryDir "data"
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $DeliveryDir "areaday\scripts\install.ps1") -Mode runtime-only
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Write checksums on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          shasum -a 256 \
+            "AreaDay-runtime-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip" \
+            "AreaDay-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip" \
+            > "SHA256SUMS-$AREADAY_PLATFORM.txt"
+
+      - name: Write checksums on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $RuntimeName = "AreaDay-runtime-$env:AREADAY_PLATFORM-v$env:AREADAY_VERSION.zip"
+          $BundleName = "AreaDay-$env:AREADAY_PLATFORM-v$env:AREADAY_VERSION.zip"
+          $RuntimeHash = (Get-FileHash -Algorithm SHA256 (Join-Path "dist" $RuntimeName)).Hash.ToLowerInvariant()
+          $BundleHash = (Get-FileHash -Algorithm SHA256 (Join-Path "dist" $BundleName)).Hash.ToLowerInvariant()
+          @("$RuntimeHash  $RuntimeName", "$BundleHash  $BundleName") |
+            Set-Content -Encoding ascii "dist/SHA256SUMS-$env:AREADAY_PLATFORM.txt"
+
+      - name: Upload verified delivery files
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AreaDay-${{ matrix.platform }}-v${{ inputs.version }}
+          path: |
+            dist/AreaDay-${{ matrix.platform }}-v${{ inputs.version }}.zip
+            dist/AreaDay-runtime-${{ matrix.platform }}-v${{ inputs.version }}.zip
+            dist/SHA256SUMS-${{ matrix.platform }}.txt
+          if-no-files-found: error
+          retention-days: 30
