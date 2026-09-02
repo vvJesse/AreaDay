@@ -1,19 +1,21 @@
 ---
-description: "Build and deliver the three native AreaDay runtime bundles with GitHub Actions."
+description: "Build and deliver the Windows x64 and Apple silicon AreaDay runtime bundles with GitHub Actions."
 ---
 
 # Build AreaDay runtime bundles
 
-AreaDay has three native runtime targets because Python and compiled packages
-are different on each operating system and processor:
+AreaDay has two supported native runtime targets because Python and compiled
+packages are different on each operating system and processor:
 
 | Runtime | GitHub runner | Customer computer |
 | --- | --- | --- |
 | `windows-x64` | `windows-2025` | 64-bit Windows on Intel/AMD |
 | `macos-arm64` | `macos-15` | Apple silicon Mac |
-| `macos-x64` | `macos-15-intel` | Intel Mac |
 
-The workflow in `.github/workflows/build-runtimes.yml` builds all three in
+Intel Macs are not a release target. Support can be evaluated separately when
+there is concrete customer demand, without delaying the supported releases.
+
+The workflow in `.github/workflows/build-runtimes.yml` builds both targets in
 parallel. Each runner creates a relocatable Python 3.12 environment, installs
 the frozen dependencies, downloads the pinned NLP models, moves the runtime to
 prove that it is relocatable, and runs a real offline inference check. It then
@@ -26,8 +28,8 @@ through the installer's `runtime-only` path.
 2. Open the repository's **Actions** page.
 3. Select **Build AreaDay runtimes**.
 4. Select **Run workflow**, confirm version `1.0.3`, and start it.
-5. Wait for all three jobs to become green.
-6. Download the three artifacts from the completed workflow run.
+5. Wait for both jobs to become green.
+6. Download the two artifacts from the completed workflow run.
 
 Each GitHub artifact contains:
 

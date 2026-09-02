@@ -22,8 +22,9 @@ from verify_nlp_runtime import ensure_model_files  # noqa: E402
 class RuntimeBuildContractTests(unittest.TestCase):
     def test_supported_native_platform_mapping_is_explicit(self) -> None:
         self.assertEqual(current_platform_id("darwin", "arm64"), "macos-arm64")
-        self.assertEqual(current_platform_id("darwin", "x86_64"), "macos-x64")
         self.assertEqual(current_platform_id("win32", "AMD64"), "windows-x64")
+        with self.assertRaisesRegex(RuntimeError, "Unsupported"):
+            current_platform_id("darwin", "x86_64")
         with self.assertRaisesRegex(RuntimeError, "Unsupported"):
             current_platform_id("linux", "x86_64")
 
@@ -49,15 +50,16 @@ class RuntimeBuildContractTests(unittest.TestCase):
         dependencies = set(re.findall(r'"([^\"]+==[^\"]+)"', dependencies_match.group(1)))
         self.assertEqual(dependencies, requirements)
 
-    def test_frozen_runtime_inputs_and_three_runner_workflow_exist(self) -> None:
+    def test_frozen_runtime_inputs_and_two_runner_workflow_exist(self) -> None:
         self.assertTrue((ROOT / "uv.lock").is_file())
         lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
         self.assertIn("sha256:", lock)
         workflow = (ROOT / ".github" / "workflows" / "build-runtimes.yml").read_text(
             encoding="utf-8"
         )
-        for platform in ("windows-x64", "macos-arm64", "macos-x64"):
+        for platform in ("windows-x64", "macos-arm64"):
             self.assertIn(f"platform: {platform}", workflow)
+        self.assertNotIn("platform: macos-x64", workflow)
         self.assertIn("--runtime-only", workflow)
         builder = (ROOT / "scripts" / "build_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn("UV_TORCH_BACKEND", workflow)

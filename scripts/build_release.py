@@ -36,7 +36,7 @@ EXCLUDED_NAMES = {
     "session.json",
 }
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-PLATFORMS = {"windows-x64", "macos-arm64", "macos-x64"}
+PLATFORMS = {"windows-x64", "macos-arm64"}
 
 
 def _sha256_file(path: Path) -> str:
