@@ -25,7 +25,7 @@ through the installer's `runtime-only` path.
 1. Commit and push the runtime files and workflow to GitHub.
 2. Open the repository's **Actions** page.
 3. Select **Build AreaDay runtimes**.
-4. Select **Run workflow**, confirm version `1.0.2`, and start it.
+4. Select **Run workflow**, confirm version `1.0.3`, and start it.
 5. Wait for all three jobs to become green.
 6. Download the three artifacts from the completed workflow run.
 
@@ -46,7 +46,7 @@ Run the workflow when AreaDay code changes for a release, when a dependency or
 model changes, or when the Python/runtime build logic changes. A new runtime is
 not needed for every customer or every activation key.
 
-The runtime dependency source is `pyproject.toml`; `uv.lock` and
-`runtime-requirements.lock` freeze the complete resolved dependency graph and
-hashes. If dependencies are intentionally changed, regenerate both lock files
-with the pinned uv version before running the workflow.
+The runtime dependency source is `pyproject.toml`; `uv.lock` freezes the
+complete resolved dependency graph and the hashes of every platform artifact.
+If dependencies are intentionally changed, regenerate `uv.lock` with the
+pinned uv version before running the workflow.

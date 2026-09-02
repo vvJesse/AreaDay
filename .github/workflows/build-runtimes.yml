@@ -6,7 +6,7 @@ on:
       version:
         description: Release version (MAJOR.MINOR.PATCH)
         required: true
-        default: 1.0.2
+        default: 1.0.3
         type: string
 
 permissions:
@@ -31,7 +31,6 @@ jobs:
     env:
       AREADAY_VERSION: ${{ inputs.version }}
       AREADAY_PLATFORM: ${{ matrix.platform }}
-      UV_TORCH_BACKEND: cpu
       TOKENIZERS_PARALLELISM: "false"
 
     steps:

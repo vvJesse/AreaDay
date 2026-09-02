@@ -19,7 +19,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCKFILE = ROOT / "runtime-requirements.lock"
+LOCKFILE = ROOT / "uv.lock"
 REQUIREMENTS = ROOT / "requirements.txt"
 MODEL_MANIFEST = ROOT / "references" / "embedding-model-manifest.json"
 SETUP_SCRIPT = ROOT / "scripts" / "setup_dependencies.py"
@@ -126,8 +126,19 @@ def archive_runtime(source: Path, output: Path, platform_id: str) -> None:
         output.unlink()
     if platform_id.startswith("macos-"):
         # ditto preserves the symlinks used by a macOS Python environment.
+        archive_environment = os.environ.copy()
+        archive_environment["COPYFILE_DISABLE"] = "1"
         subprocess.run(
-            ["ditto", "-c", "-k", "--keepParent", str(source), str(output)],
+            [
+                "ditto",
+                "-c",
+                "-k",
+                "--norsrc",
+                "--keepParent",
+                str(source),
+                str(output),
+            ],
+            env=archive_environment,
             check=True,
         )
     else:
@@ -143,7 +154,7 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
             f"This runner is {actual_platform}, not the requested {expected_platform}."
         )
     if not LOCKFILE.is_file():
-        raise RuntimeError("runtime-requirements.lock is missing; regenerate the frozen lock first.")
+        raise RuntimeError("uv.lock is missing; regenerate the frozen lock first.")
     uv = shutil.which("uv")
     if uv is None:
         raise RuntimeError("uv is required to build an AreaDay runtime.")
@@ -151,7 +162,6 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
     environment = os.environ.copy()
     environment["UV_MANAGED_PYTHON"] = "1"
     environment["UV_NO_CONFIG"] = "1"
-    environment.setdefault("UV_TORCH_BACKEND", "cpu")
     environment.setdefault("TOKENIZERS_PARALLELISM", "false")
 
     with tempfile.TemporaryDirectory(prefix="areaday-runtime-build-") as temporary:
@@ -159,8 +169,8 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
         runtime = work / "runtime"
         venv = runtime / "venv"
         models = runtime / "models" / "sentence-transformers"
-        environment["UV_PYTHON_INSTALL_DIR"] = str(work / "managed-python")
-        environment["UV_CACHE_DIR"] = str(work / "uv-cache")
+        environment.setdefault("UV_PYTHON_INSTALL_DIR", str(work / "managed-python"))
+        environment.setdefault("UV_CACHE_DIR", str(work / "uv-cache"))
 
         run([uv, "python", "install", "--managed-python", PYTHON_REQUEST], environment=environment)
         run(
@@ -176,17 +186,15 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
             environment=environment,
         )
         python = runtime_python(venv, expected_platform)
+        environment["UV_PROJECT_ENVIRONMENT"] = str(venv)
         run(
             [
                 uv,
-                "pip",
-                "install",
+                "sync",
+                "--frozen",
                 "--no-config",
-                "--python",
-                str(python),
-                "--require-hashes",
-                "--requirements",
-                str(LOCKFILE),
+                "--no-dev",
+                "--no-install-project",
             ],
             environment=environment,
         )
