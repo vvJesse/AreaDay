@@ -97,6 +97,22 @@ def corpus_args(workspace: Path) -> SimpleNamespace:
     )
 
 
+class ReadyCalibrationSession:
+    def public_state(self) -> dict:
+        return {
+            "answered": 0,
+            "question_limit": 30,
+            "complete": False,
+            "mutation_revision": 0,
+            "threshold": {"selected_percent": 90},
+            "responses": {"known": 0, "unknown": 0, "unsure": 0},
+            "word": {"lemma": "model0", "part_of_speech": "noun"},
+        }
+
+    def personal_vocabulary_mastery(self, _mastered: set[str]) -> None:
+        return None
+
+
 class TerminologyInitializationTests(unittest.TestCase):
     def test_one_finalizer_makes_both_assets_ready_before_calibration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -205,7 +221,10 @@ class TerminologyInitializationTests(unittest.TestCase):
             args.domain = "test-domain"
             args.ready_calibration_domain = "test-domain"
 
-            runtime = APP.build_runtime(args)
+            with patch.object(
+                APP, "RemoteCalibrationSession", return_value=ReadyCalibrationSession()
+            ):
+                runtime = APP.build_runtime(args)
             state = runtime.app_state("test-domain")
 
             self.assertEqual(state["domain_id"], "test-domain")
@@ -280,7 +299,10 @@ class TerminologyInitializationTests(unittest.TestCase):
             self.assertTrue((analysis / "terminology-explanations.json").is_file())
             validate_initialized_workspace(workspace)
 
-            runtime = APP.build_runtime(corpus_args(workspace))
+            with patch.object(
+                APP, "RemoteCalibrationSession", return_value=ReadyCalibrationSession()
+            ):
+                runtime = APP.build_runtime(corpus_args(workspace))
             store = runtime.context("current-domain").continuous_store
             assert store is not None
             self.assertEqual(len(store.list_terms()), 1)
@@ -372,7 +394,10 @@ class TerminologyInitializationTests(unittest.TestCase):
                 },
             )
 
-            runtime = APP.build_runtime(corpus_args(workspace))
+            with patch.object(
+                APP, "RemoteCalibrationSession", return_value=ReadyCalibrationSession()
+            ):
+                runtime = APP.build_runtime(corpus_args(workspace))
             store = runtime.context("current-domain").continuous_store
             assert store is not None
             terms = store.list_terms()
@@ -464,7 +489,7 @@ class TerminologyInitializationTests(unittest.TestCase):
                 patch.object(APP, "validate_completed_workspace"),
                 patch.object(APP, "load_words", return_value=[]),
                 patch.object(APP, "ContinuousStore", return_value=store),
-                patch.object(APP, "CalibrationSession", return_value=Mock()),
+                patch.object(APP, "RemoteCalibrationSession", return_value=Mock()),
             ):
                 context = APP._workspace_context(
                     registration,

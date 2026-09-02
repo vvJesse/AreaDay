@@ -437,7 +437,7 @@ def install(venv_dir: Path, model_dir: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Install or verify ResearchRamp's isolated local runtime."
+        description="Install or verify AreaDay's isolated local runtime."
     )
     parser.add_argument(
         "--install",
@@ -458,7 +458,7 @@ def main() -> int:
             install(venv_dir, model_dir)
         except subprocess.CalledProcessError as error:
             raise SystemExit(
-                "ResearchRamp setup could not finish its networked installation. "
+                "AreaDay setup could not finish its networked installation. "
                 "Check access to the configured Python package index and at least one "
                 "configured static model source, then rerun the same command. Verified "
                 "downloads are cached and will be reused. No Hugging Face token is required."

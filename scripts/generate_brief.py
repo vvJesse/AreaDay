@@ -26,6 +26,7 @@ from domain_registry import (
     validate_completed_workspace,
 )
 from researchramp_core import read_json, write_json
+from researchramp_license import enforce_business_license
 
 
 SCHEMA_VERSION = 1
@@ -320,6 +321,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    enforce_business_license("brief_generation")
     try:
         workspace, domain_id = resolve_workspace(
             args.registry.expanduser().resolve(), args.domain, args.workspace

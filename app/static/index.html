@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ResearchRamp</title>
+    <title>AreaDay</title>
     <link rel="stylesheet" href="/styles.css?v=6" />
   </head>
   <body>
     <main class="shell">
       <header class="app-header">
-        <div class="brand">ResearchRamp <span id="corpusLabel"></span></div>
-        <nav id="mainNav" class="main-nav" aria-label="ResearchRamp 功能" hidden>
+        <div class="brand">AreaDay <span id="corpusLabel"></span></div>
+        <nav id="mainNav" class="main-nav" aria-label="AreaDay 功能" hidden>
           <button type="button" data-view="vocabulary">领域词表</button>
           <button type="button" data-view="briefs">研究简报</button>
           <button type="button" data-view="review">今日复习 <span id="navDueCount" class="nav-count" hidden></span></button>
@@ -219,7 +219,7 @@
       </section>
 
       <section id="scheduleView" class="app-view" hidden>
-        <div class="result-hero card schedule-hero"><p class="eyebrow">ResearchRamp Schedule</p><h1>安排持续研究支持</h1><p>每周简报和每日复习提醒相互独立，可以分别设置。</p></div>
+        <div class="result-hero card schedule-hero"><p class="eyebrow">AreaDay Schedule</p><h1>安排持续研究支持</h1><p>每周简报和每日复习提醒相互独立，可以分别设置。</p></div>
         <div class="schedule-form">
         <form id="weeklyScheduleForm">
           <section class="card schedule-option"><div class="schedule-option-head"><div><p class="eyebrow">每周一次</p><h2>研究简报</h2><p>只推荐已完成全文下载、论文身份核对和词汇语境提取的论文。</p></div><label class="switch"><input id="weeklyEnabled" type="checkbox" /><span></span></label></div><div class="schedule-fields"><label>星期<select id="weeklyWeekday"><option value="1">星期一</option><option value="2">星期二</option><option value="3">星期三</option><option value="4">星期四</option><option value="5">星期五</option><option value="6">星期六</option><option value="7">星期日</option></select></label><label>提醒时间<input id="weeklyTime" type="time" required /></label></div></section>

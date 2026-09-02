@@ -280,14 +280,14 @@ class ContinuousStore:
     def automation_handoff(self, section: str | None = None) -> dict[str, Any]:
         settings = self.get_settings()
         workspace = str(self.workspace)
-        prefix = f"ResearchRamp · {self.display_name}"
+        prefix = f"AreaDay · {self.display_name}"
         automations = {
             "weekly_brief": {
                 **settings["weekly_brief"],
                 "automation_key": f"researchramp:{self.domain_id}:weekly-brief",
                 "name": f"{prefix} · 每周研究简报",
                 "prompt": (
-                    "Use $researchramp to generate one research brief for the initialized "
+                    "Use $areaday to generate one research brief for the initialized "
                     f"workspace {workspace}. Run the single brief-generation operation "
                     "through its terminal result: either import one source-grounded brief "
                     "or report that fewer than two reliable sources were available. Do "
@@ -300,7 +300,7 @@ class ContinuousStore:
                 "automation_key": f"researchramp:{self.domain_id}:daily-review",
                 "name": f"{prefix} · 今日语言复习",
                 "prompt": (
-                    "Use $researchramp in due-review reminder mode for the initialized "
+                    "Use $areaday in due-review reminder mode for the initialized "
                     f"workspace {workspace}. Check the local FSRS queue and notify the user "
                     "only when one or more learning items (words or terms) are due; "
                     "otherwise finish silently."

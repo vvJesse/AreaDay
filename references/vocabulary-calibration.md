@@ -1,14 +1,22 @@
 # Vocabulary calibration model
 
-This local step follows mini-corpus analysis. It reads that corpus's Vocabulary
-Map, asks 30 isolated-word familiarity questions, and keeps its state and final
-personalized predictions inside the same corpus directory.
+This licensed step follows local mini-corpus analysis. The local Skill reads the
+Vocabulary Map and sends only eight fields per word to the AreaDay prediction
+service: lemma, part of speech, total count, document count, document share,
+Zipf frequency, CEFR level, and applicable exam tags. Never send PDFs, extracted
+text, sentences, source-paper identifiers, URLs, document paths, or per-document
+counts. The service verifies the activated device license before returning the
+first question or processing any answer.
 
 Responses are stored in
 `<confirmed-corpus-directory>/analysis/vocabulary-calibration-session.json`.
-After answer 30, the server automatically writes
+After answer 30, the local workbench automatically writes
 `analysis/vocabulary-calibration-result.json` and
 `analysis/personalized-vocabulary.tsv`; the page also offers the TSV download.
+Once these three local files are complete and internally consistent, reopening
+the result does not contact the prediction service. An incomplete calibration
+requires the service; report `calibration_service_unavailable` separately from
+license errors.
 
 The model starts with the original `wordfreq` population prior and adds weak
 education evidence for the default Chinese B2/CET-6 learner profile:
@@ -45,8 +53,10 @@ exported as `1.0`, `unknown` as `0.0`, and `unsure` remains model-derived.
 
 Use both `--disable-cefr-prior --disable-exam-prior` to reproduce the original
 word-frequency-only baseline. `--exam-profile` accepts `none`, `gaokao`,
-`cet4`, or `cet6`. This is a lightweight personalization model, not a validated
-language-assessment instrument.
+`cet4`, or `cet6`. The prediction implementation lives only in the private
+server-side development project; do not add a local fallback or duplicate the
+algorithm in the distributed Skill. This is a lightweight personalization
+model, not a validated language-assessment instrument.
 
 An unlisted word is deliberately not penalized: the first comparison showed
 that a negative adjustment disproportionately pushed valid domain terms such

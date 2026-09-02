@@ -2,6 +2,7 @@
 .cache/
 .models/
 .runtime/
+dist/
 researchramp-data/
 __pycache__/
 *.pyc

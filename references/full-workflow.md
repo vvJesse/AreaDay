@@ -1,13 +1,20 @@
 ---
 name: researchramp-full-workflow
-description: "Prepare one confirmed ResearchRamp domain, launch its verified calibration workbench, and finish the personalized vocabulary after the user's answers."
+description: "Prepare one confirmed AreaDay domain, launch its verified calibration workbench, and finish the personalized vocabulary after the user's answers."
 ---
 
-# ResearchRamp first-time workflow
+# AreaDay first-time workflow
 
 Use this reference only when establishing or rebuilding a research domain. An
 ordinary request to open vocabulary, briefs, review, or domain switching uses
 the fast path in `SKILL.md`.
+
+Before asking the domain questions below, run the prediction preflight required
+by `SKILL.md`. A missing or invalid license stops before paper collection. A
+temporary prediction-service outage is not a license failure: explain that the
+local mini corpus can still be prepared but the 30-question calibration and
+personal vocabulary cannot finish unless the service becomes available, then
+wait for the user's explicit choice to continue or postpone.
 
 ## The lifecycle contract
 
@@ -47,6 +54,11 @@ Do not call the whole initialization complete at that handoff. Full
 initialization completes only after the user submits 30 answers and the result
 and personalized TSV are verified.
 
+The mini corpus is built locally. When calibration starts, the Skill sends only
+the compact word statistics listed in `vocabulary-calibration.md` plus the
+user's isolated-word answers to the licensed predictor. PDFs, extracted text,
+sentences, paper sources, and local paths never leave the confirmed workspace.
+
 ## Prepare the local runtime
 
 Run commands from this Skill root. First check the Skill-local runtime.
@@ -85,7 +97,7 @@ the embedding model. Success requires exit code 0 and the final offline
 verification reporting `"status": "ok"` after real spaCy and 384-dimensional
 embedding inference. Do not create a second environment.
 
-ResearchRamp uses OpenAlex and optionally arXiv; `arxiv-mcp-server` is not a
+AreaDay uses OpenAlex and optionally arXiv; `arxiv-mcp-server` is not a
 dependency. If `~/.researchramp/credentials.ini` has not been configured, use
 the platform `configure_openalex` launcher. Never ask the user to paste an API
 key into chat, never print it, and never store it in corpus artifacts. A saved
@@ -217,9 +229,11 @@ same compatible live service when present. Weekly scheduling follows
 
 ## Invariants
 
-- All data stays in the user-confirmed workspace and this Skill instance's own
-  explicit registry. Never scan the filesystem, infer another workspace, or
-  copy domain data from another Skill installation.
+- All documents and content stay in the user-confirmed workspace, and the Skill
+  instance uses only its own explicit registry. The sole product-service data
+  exception is the minimal word statistics and isolated-word answers required
+  by the licensed predictor. Never scan the filesystem, infer another
+  workspace, or copy domain data from another Skill installation.
 - Vocabulary and terminology are both derived from retained full text. Titles
   and abstracts are for paper-level relevance only.
 - Calibration never selects, removes, or redefines terminology.

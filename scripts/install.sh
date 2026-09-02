@@ -8,16 +8,25 @@ RUNTIME_DIR=${RESEARCHRAMP_RUNTIME_DIR:-"$SKILL_DIR/.runtime"}
 VENV_DIR=${RESEARCHRAMP_VENV_DIR:-"$SKILL_DIR/.venv"}
 MODEL_DIR=${RESEARCHRAMP_MODEL_DIR:-"$HOME/.researchramp/models/sentence-transformers"}
 SETUP_SCRIPT="$SCRIPT_DIR/setup_dependencies.py"
+MIGRATION_SCRIPT="$SCRIPT_DIR/migrate_areaday_data.py"
 OPENALEX_SETUP_SCRIPT="$SCRIPT_DIR/configure_openalex.sh"
 OPENALEX_CONFIG="$HOME/.researchramp/credentials.ini"
 MODE=${1:---install}
 OPENALEX_SETUP_PID=""
+RUNTIME_STAGE=""
 
 stop_openalex_setup() {
   if [ -n "$OPENALEX_SETUP_PID" ]; then
     kill "$OPENALEX_SETUP_PID" >/dev/null 2>&1 || true
     wait "$OPENALEX_SETUP_PID" >/dev/null 2>&1 || true
     OPENALEX_SETUP_PID=""
+  fi
+}
+
+cleanup_runtime_stage() {
+  if [ -n "$RUNTIME_STAGE" ] && [ -d "$RUNTIME_STAGE" ]; then
+    rm -rf -- "$RUNTIME_STAGE"
+    RUNTIME_STAGE=""
   fi
 }
 
@@ -36,13 +45,13 @@ wait_for_openalex_setup() {
   fi
 }
 
-trap stop_openalex_setup EXIT
-trap 'stop_openalex_setup; exit 130' HUP INT TERM
+trap 'cleanup_runtime_stage; stop_openalex_setup' EXIT
+trap 'cleanup_runtime_stage; stop_openalex_setup; exit 130' HUP INT TERM
 
 case "$MODE" in
-  --check|--install|--bootstrap-only) ;;
+  --check|--install|--bootstrap-only|--runtime-only) ;;
   *)
-    echo "Usage: sh scripts/install.sh [--check|--install|--bootstrap-only]" >&2
+    echo "Usage: sh scripts/install.sh [--check|--install|--bootstrap-only|--runtime-only]" >&2
     exit 2
     ;;
 esac
@@ -50,7 +59,7 @@ esac
 if [ "$MODE" = "--check" ]; then
   VENV_PYTHON="$VENV_DIR/bin/python"
   if [ ! -x "$VENV_PYTHON" ]; then
-    echo "ResearchRamp runtime is not installed at $VENV_DIR" >&2
+    echo "AreaDay runtime is not installed at $VENV_DIR" >&2
     exit 1
   fi
   exec "$VENV_PYTHON" "$SETUP_SCRIPT" \
@@ -58,9 +67,103 @@ if [ "$MODE" = "--check" ]; then
     --model-dir "$MODEL_DIR"
 fi
 
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64|Darwin-aarch64) PLATFORM_ID="macos-arm64" ;;
+  Darwin-x86_64) PLATFORM_ID="macos-x64" ;;
+  *)
+    echo "This AreaDay installer supports macOS arm64 and macOS x64 only." >&2
+    exit 1
+    ;;
+esac
+
+find_bundled_runtime() {
+  RUNTIME_PACK_DIR="$SKILL_DIR/runtime-packs"
+  [ -d "$RUNTIME_PACK_DIR" ] || return 1
+  RUNTIME_MATCHES=$(find "$RUNTIME_PACK_DIR" -maxdepth 1 -type f \
+    -name "AreaDay-runtime-$PLATFORM_ID-*.zip" -print)
+  RUNTIME_COUNT=$(printf '%s\n' "$RUNTIME_MATCHES" | sed '/^$/d' | wc -l | tr -d ' ')
+  if [ "$RUNTIME_COUNT" -eq 0 ]; then
+    return 1
+  fi
+  if [ "$RUNTIME_COUNT" -ne 1 ]; then
+    echo "Expected one bundled runtime for $PLATFORM_ID, found $RUNTIME_COUNT." >&2
+    return 2
+  fi
+  BUNDLED_RUNTIME=$RUNTIME_MATCHES
+}
+
+install_bundled_runtime() {
+  runtime_archive=$1
+  mkdir -p "$RUNTIME_DIR"
+  RUNTIME_STAGE=$(mktemp -d "$RUNTIME_DIR/areaday-runtime-stage.XXXXXX")
+  echo "Installing the bundled AreaDay runtime for $PLATFORM_ID..."
+  ditto -x -k "$runtime_archive" "$RUNTIME_STAGE"
+  staged_root="$RUNTIME_STAGE/runtime"
+  staged_venv="$staged_root/venv"
+  staged_model="$staged_root/models/sentence-transformers"
+  staged_python="$staged_venv/bin/python"
+  staged_manifest="$staged_root/runtime.json"
+  if [ ! -x "$staged_python" ] || [ ! -f "$staged_manifest" ] || [ ! -d "$staged_model" ]; then
+    echo "The bundled runtime is incomplete." >&2
+    return 1
+  fi
+  "$staged_python" -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); assert p.get("schema_version")==1 and p.get("product")=="areaday" and p.get("platform")==sys.argv[2]' "$staged_manifest" "$PLATFORM_ID"
+  "$staged_python" "$SETUP_SCRIPT" --venv-dir "$staged_venv" --model-dir "$staged_model"
+
+  mkdir -p "$(dirname -- "$MODEL_DIR")" "$(dirname -- "$VENV_DIR")"
+  ditto "$staged_model" "$MODEL_DIR"
+  backup_venv="$VENV_DIR.areaday-backup-$$"
+  if [ -e "$backup_venv" ]; then
+    echo "Cannot create the temporary runtime backup: $backup_venv already exists." >&2
+    return 1
+  fi
+  had_previous_venv=0
+  if [ -e "$VENV_DIR" ]; then
+    mv "$VENV_DIR" "$backup_venv"
+    had_previous_venv=1
+  fi
+  if mv "$staged_venv" "$VENV_DIR" && \
+    "$VENV_DIR/bin/python" "$SETUP_SCRIPT" --venv-dir "$VENV_DIR" --model-dir "$MODEL_DIR"; then
+    if [ "$had_previous_venv" -eq 1 ]; then
+      rm -rf -- "$backup_venv"
+    fi
+    cleanup_runtime_stage
+    return 0
+  fi
+  rm -rf -- "$VENV_DIR"
+  if [ "$had_previous_venv" -eq 1 ]; then
+    mv "$backup_venv" "$VENV_DIR"
+  fi
+  echo "The bundled runtime failed verification after installation." >&2
+  return 1
+}
+
+finish_installation() {
+  "$VENV_DIR/bin/python" "$MIGRATION_SCRIPT"
+  if [ "$MODE" = "--install" ]; then
+    wait_for_openalex_setup
+  fi
+}
+
 if [ "$MODE" = "--install" ]; then
   sh "$OPENALEX_SETUP_SCRIPT" &
   OPENALEX_SETUP_PID=$!
+fi
+
+if find_bundled_runtime; then
+  install_bundled_runtime "$BUNDLED_RUNTIME"
+  finish_installation
+  echo "AreaDay is ready. The bundled runtime was verified without downloading dependencies."
+  exit 0
+else
+  runtime_lookup_status=$?
+  if [ "$runtime_lookup_status" -ne 1 ]; then
+    exit "$runtime_lookup_status"
+  fi
+  if [ "$MODE" = "--runtime-only" ]; then
+    echo "No bundled runtime was found for $PLATFORM_ID." >&2
+    exit 1
+  fi
 fi
 
 mkdir -p "$RUNTIME_DIR"
@@ -109,7 +212,7 @@ if "$UV_BIN" run --isolated --no-project --no-config --managed-python --python 3
   --install \
   --venv-dir "$VENV_DIR" \
   --model-dir "$MODEL_DIR"; then
-  wait_for_openalex_setup
+  finish_installation
   echo "Installation verified; removing the disposable package-download cache..."
   if ! "$UV_BIN" cache clean --no-config; then
     echo "Warning: installation succeeded, but the disposable uv cache could not be cleaned." >&2

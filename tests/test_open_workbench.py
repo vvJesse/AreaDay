@@ -1016,6 +1016,7 @@ class ProductionHandshakeTests(unittest.TestCase):
         }
         with (
             mock.patch.object(launcher, "parse_args", return_value=args),
+            mock.patch.object(launcher, "enforce_business_license"),
             mock.patch.object(
                 launcher,
                 "ensure_workbench",

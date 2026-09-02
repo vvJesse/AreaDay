@@ -78,7 +78,7 @@ async function request(path, options = {}, requestContext = {}) {
   });
   const data = await response.json();
   if (data.api_version !== EXPECTED_API_VERSION) {
-    throw new Error("本地服务版本已经更新，请关闭旧页面并重新启动 ResearchRamp。");
+    throw new Error("本地服务版本已经更新，请关闭旧页面并重新启动 AreaDay。");
   }
   if (!response.ok) throw new Error(data.error || "请求失败");
   if (domainId && data.domain_id !== domainId) {

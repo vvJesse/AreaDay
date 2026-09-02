@@ -1,4 +1,6 @@
-param()
+param(
+    [switch]$Reconfigure
+)
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -30,20 +32,30 @@ function Restrict-Configuration {
     }
 }
 
-function Create-ConfigurationTemplate {
+function Save-Configuration {
+    param([Parameter(Mandatory)][string]$ApiKey)
     New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
-    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
-        $Template = @"
-[openalex]
-
-# 请把完整的 OpenAlex API Key 粘贴到等号右侧，然后保存。
-# 不要把本文件上传或发送到聊天中。
-# 如果明确选择匿名额度，请填写 anonymous。
-api_key =
-"@
-        [IO.File]::WriteAllText($ConfigPath, ($Template.TrimStart() + "`n"), $Utf8)
-    }
+    # Keep this credential file ASCII-only so localized Windows editors cannot
+    # misidentify its encoding and show the user garbled instructional text.
+    $Content = "[openalex]`napi_key = $ApiKey`n"
+    [IO.File]::WriteAllText($ConfigPath, $Content, $Utf8)
     Restrict-Configuration
+}
+
+function Read-OpenAlexKey {
+    Write-Host "Paste the OpenAlex API key at the hidden prompt below."
+    Write-Host "Enter anonymous if you want to use OpenAlex without a key."
+    $SecureInput = Read-Host -Prompt "OpenAlex API key" -AsSecureString
+    $Pointer = [IntPtr]::Zero
+    try {
+        $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureInput)
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer).Trim()
+    } finally {
+        if ($Pointer -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Pointer)
+        }
+        $SecureInput.Dispose()
+    }
 }
 
 function Test-OpenAlexKey {
@@ -63,48 +75,50 @@ function Test-OpenAlexKey {
     }
 }
 
-Create-ConfigurationTemplate
-$SetupFilesOpened = $false
-function Open-SetupFiles {
-    if ($script:SetupFilesOpened) { return }
+$SetupHelpOpened = $false
+function Open-SetupHelp {
+    if ($script:SetupHelpOpened) { return }
     Start-Process $HelpPath
-    Start-Process notepad.exe -ArgumentList ('"' + $ConfigPath + '"')
-    $script:SetupFilesOpened = $true
-}
-if ([string]::IsNullOrWhiteSpace((Read-Setting "api_key"))) {
-    Open-SetupFiles
-    Write-Host "OpenAlex instructions and the local configuration file are open."
-    Write-Host "Look for credentials.ini in the Codex/WorkBuddy file panel or the system text editor."
-    Write-Host "Paste the key after 'api_key =', save the file, and keep this task open until validation finishes."
+    $script:SetupHelpOpened = $true
 }
 
-$LastAttemptedValue = ""
-while ($true) {
-    $ApiKey = Read-Setting "api_key"
-    if ([string]::IsNullOrWhiteSpace($ApiKey) -or $ApiKey -eq $LastAttemptedValue) {
-        Start-Sleep -Milliseconds 500
-        continue
+$ApiKey = if ($Reconfigure) { "" } else { Read-Setting "api_key" }
+if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
+    if ($ApiKey -eq "anonymous") {
+        Save-Configuration $ApiKey
+        Write-Host "OpenAlex anonymous access is already configured."
+        exit 0
     }
-    $LastAttemptedValue = $ApiKey
+    if ($ApiKey -match "^[A-Za-z0-9_-]{12,200}$" -and (Test-OpenAlexKey $ApiKey) -eq "valid") {
+        Save-Configuration $ApiKey
+        Write-Host "OpenAlex key verified at $ConfigPath"
+        exit 0
+    }
+    Write-Warning "The saved OpenAlex key could not be verified. Enter it again."
+}
+
+Open-SetupHelp
+while ($true) {
+    $ApiKey = Read-OpenAlexKey
 
     if ($ApiKey -eq "anonymous") {
+        Save-Configuration $ApiKey
         Write-Host "OpenAlex anonymous access selected at $ConfigPath"
         exit 0
     }
     if ($ApiKey -notmatch "^[A-Za-z0-9_-]{12,200}$") {
-        Write-Warning "OpenAlex did not recognize the saved value. Replace it with the complete API key and save again."
-        Open-SetupFiles
+        Write-Warning "OpenAlex did not recognize that value. Paste the complete API key, or enter anonymous."
         continue
     }
 
     $Validation = Test-OpenAlexKey $ApiKey
     if ($Validation -eq "valid") {
+        Save-Configuration $ApiKey
         Write-Host "OpenAlex key verified at $ConfigPath"
         exit 0
     }
     if ($Validation -eq "invalid") {
-        Write-Warning "OpenAlex did not recognize this key. Copy the complete key from OpenAlex Settings and save again."
-        Open-SetupFiles
+        Write-Warning "OpenAlex did not recognize that key. Copy the complete key from OpenAlex Settings and try again."
         continue
     }
     throw "Could not connect to OpenAlex to verify the key. Run this setup again when OpenAlex is reachable."

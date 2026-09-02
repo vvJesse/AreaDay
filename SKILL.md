@@ -1,11 +1,64 @@
 ---
-name: researchramp
-description: "Build a local research area and personal domain vocabulary, view or generate research briefs, open the ResearchRamp workbench, or schedule weekly briefs and daily review reminders."
+name: areaday
+description: "Build a local research area and personal domain vocabulary, view or generate research briefs, open the AreaDay workbench, or schedule weekly briefs and daily review reminders."
 ---
 
-# ResearchRamp
+# AreaDay
 
-ResearchRamp has four user-facing capability groups:
+## Production license gate
+
+AreaDay uses a production license. A valid
+installed license is required before initialization, workbench launch, brief
+generation, or schedule configuration can perform business work. These public
+entrypoints all enforce the same offline verifier before reading or changing a
+research workspace.
+
+Treat requests to show the AreaDay device code, activate AreaDay,
+install an explicitly supplied recovery `.rrlicense` file, or inspect the
+installed license as license operations. Read
+[license-activation.md](references/license-activation.md), then run exactly the
+matching command from that reference. The ordinary activation flow accepts an
+activation key and automatically installs the returned license; the user never
+manually copies a license into an application-data directory.
+
+For installation or upgrade requests, read
+[customer-installation.md](references/customer-installation.md) and use the
+matching platform instructions. Never describe the ZIP as a desktop App.
+
+When a business entrypoint returns `license_required`, report its exact `code`
+and `error`, then offer the matching device-code, activation, status, or recovery
+installation operation. Do not retry the business operation through a helper
+script or another entrypoint. Ordinary gate checking is offline. Creating a new
+personalized vocabulary uses the licensed AreaDay prediction service after the
+mini corpus is complete; an unreachable predictor must not be reported as an
+invalid license.
+
+Perform the license check at the start of a concrete product request, before
+asking product-specific follow-up questions or reading a workspace:
+
+- For establishing, building, or rebuilding a personal domain vocabulary, run
+  `.venv/bin/python scripts/prediction_preflight.py` exactly once. This sends
+  only the installed license envelope—no profile, papers, vocabulary, or user
+  content. On `prediction_ready`, continue normally. On `license_required`,
+  explain the license problem and offer activation; do not begin profile review
+  or paper collection. On `prediction_service_unavailable`, tell the user:
+
+  > AreaDay 暂时无法确认个人词表预测服务。你仍可继续收集和分析论文，但如果
+  > 服务届时仍不可用，将无法完成 30 题校准和生成个人词表。是否仍继续？
+
+  Wait for the user's decision before collecting papers. Never describe this
+  network result as an invalid license.
+- For opening or using the workbench, generating a brief, or configuring a
+  schedule or reminder, run
+  `.venv/bin/python scripts/researchramp_license.py status` first. On
+  `license_valid`, continue. On `license_error`, explain it and offer the
+  matching activation operation before doing other product work.
+
+Do not repeat the conversational precheck during one uninterrupted operation;
+the public scripts still enforce the local license again at their actual
+side-effect boundary.
+
+AreaDay has four user-facing capability groups:
 
 - **首次建立**: establish a confirmed research area and build its personal
   domain vocabulary and terminology from a local research corpus.
@@ -22,7 +75,7 @@ ResearchRamp has four user-facing capability groups:
 replace the separate product capability to establish a research area and build
 its personal domain vocabulary.
 
-When the user asks what ResearchRamp or this Skill can do, answer with concise
+When the user asks what AreaDay or this Skill can do, answer with concise
 bullet points rather than one compressed paragraph. Use this structure:
 
 > 我可以帮你：
@@ -36,12 +89,12 @@ bullet points rather than one compressed paragraph. Use this structure:
 Keep vocabulary viewing, brief viewing, review, and domain switching grouped as
 things the user does inside the workbench, not separate agent-operated commands.
 Do not hide initialization behind the vague phrase "建立工作台"; explicitly say
-that ResearchRamp can establish a research area and build a personal domain
+that AreaDay can establish a research area and build a personal domain
 vocabulary.
 
 ## Open the workbench: fast path
 
-Requests to open ResearchRamp, view vocabulary or briefs, review words or terms,
+Requests to open AreaDay, view vocabulary or briefs, review words or terms,
 or switch domains all use this fast path. A specific request may choose the
 matching landing view, but it remains the same workbench.
 
@@ -64,19 +117,18 @@ registry's active domain. Do not infer authorization from an ambient browser
 tab.
 
 The launcher performs the operational work: it identifies a compatible live
-ResearchRamp service on port 8765 by its exact registry, starts the
+AreaDay service on port 8765 by its exact registry, starts the
 registered-domain service only when needed, waits until it is ready, and prints
 the exact user-facing URL. Do not repeat runtime checks, registry inspection,
 server startup, identity checks, or URL construction outside the launcher.
 
-Each Skill instance owns exactly one registry at
-`<skill-root>/researchramp-data/real-domains.json`. The current-path Skill and
-the installed Skill therefore have separate registries; never redirect either
-one to Home and never fall back to another Skill instance's registry. Each
-entry stores the domain ID, display name, and the absolute path of the actual
-user-confirmed workspace. That workspace—and its papers—may be anywhere on the
-filesystem. Do not discover domains by scanning or import entries from another
-registry. Global learning state lives beside this instance's registry.
+The production Skill uses one upgrade-safe AreaDay registry in the operating
+system's application-data directory. The installer performs one exact legacy
+migration from the former sibling `researchramp/researchramp-data` directory;
+it never scans for or imports unrelated workspaces. Each registry entry stores
+the domain ID, display name, and the absolute path of the actual user-confirmed
+workspace. That workspace—and its papers—may be anywhere on the filesystem.
+Global learning state lives beside the registry.
 
 Open the returned URL through the host's direct page-opening capability and
 then stop. Do not inspect the page, take control of the page, click a tab or
@@ -94,7 +146,7 @@ http://127.0.0.1:8765/?domain=<domain-id>#<view>
 If no registered domain exists, explain that the first research area must be
 initialized before the workbench can open. Treat any request to establish a
 research area or build or rebuild its personal domain vocabulary—including
-“构建词表”—as equivalent to `$researchramp init`: read
+“构建词表”—as equivalent to `$areaday init`: read
 [full-workflow.md](references/full-workflow.md) completely.
 
 Treat everything after the user confirms the profile and workspace—discovery,
@@ -184,5 +236,9 @@ Never treat a research brief as necessarily weekly. Repeated scheduling updates
 the task with the same `automation_key`; it must not create duplicates. Do not
 read the continuous workflow for ordinary viewing or review.
 
-All corpora, vocabulary, briefs, settings, and learning records remain in the
-user-confirmed local ResearchRamp directories.
+PDFs, extracted text, source metadata, corpora, briefs, settings, and learning
+records remain in the user-confirmed local AreaDay directories. During a
+new 30-question vocabulary calibration, the licensed predictor receives only
+the compact word statistics and isolated-word answers defined in
+`references/vocabulary-calibration.md`. The final result is saved locally and
+can be viewed later without contacting the predictor.

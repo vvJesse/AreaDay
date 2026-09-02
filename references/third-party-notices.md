@@ -1,6 +1,6 @@
 # Third-party notices
 
-ResearchRamp uses Py-FSRS (`fsrs`) for local spaced-repetition scheduling.
+AreaDay uses Py-FSRS (`fsrs`) for local spaced-repetition scheduling.
 
 MIT License
 
