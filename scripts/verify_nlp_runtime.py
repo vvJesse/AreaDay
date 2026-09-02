@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import importlib.metadata
 import json
 import math
 import os
+import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 
@@ -54,28 +57,27 @@ def ensure_model_files(
             )
         return
 
-    import httpx
-
     target.mkdir(parents=True, exist_ok=True)
     headers = {"User-Agent": "ResearchRamp/0.1 (public model installer)"}
-    timeout = httpx.Timeout(connect=30, read=120, write=30, pool=30)
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
-        for relative_path, expected_hash in files.items():
-            destination = target / relative_path
-            if destination.is_file() and sha256(destination) == expected_hash:
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            staging = destination.with_suffix(destination.suffix + ".part")
-            encoded_path = urllib.parse.quote(relative_path, safe="/")
-            url = (
-                f"{endpoint.rstrip('/')}/{repository}/resolve/{revision}/{encoded_path}"
-            )
+    for relative_path, expected_hash in files.items():
+        destination = target / relative_path
+        if destination.is_file() and sha256(destination) == expected_hash:
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staging = destination.with_suffix(destination.suffix + ".part")
+        encoded_path = urllib.parse.quote(relative_path, safe="/")
+        url = f"{endpoint.rstrip('/')}/{repository}/resolve/{revision}/{encoded_path}"
+        last_error: Exception | None = None
+        for attempt in range(3):
             try:
-                with client.stream("GET", url) as response:
-                    response.raise_for_status()
+                request = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(request, timeout=120) as response:
                     digest = hashlib.sha256()
                     with staging.open("wb") as output:
-                        for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                        while True:
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
                             digest.update(chunk)
                             output.write(chunk)
                 actual_hash = digest.hexdigest()
@@ -85,8 +87,16 @@ def ensure_model_files(
                         f"expected {expected_hash}, got {actual_hash}"
                     )
                 staging.replace(destination)
+                last_error = None
+                break
+            except (OSError, RuntimeError, http.client.HTTPException) as error:
+                last_error = error
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
             finally:
                 staging.unlink(missing_ok=True)
+        if last_error is not None:
+            raise last_error
 
 
 def parse_args() -> argparse.Namespace:
