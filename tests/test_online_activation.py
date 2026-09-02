@@ -124,10 +124,10 @@ class OnlineActivationClientTests(unittest.TestCase):
             "01234567-89ab-cdef-0123-456789abcdef",
         )
 
-    def test_default_activation_service_is_the_cloudflare_development_worker(self) -> None:
+    def test_default_activation_service_is_the_areaday_production_worker(self) -> None:
         self.assertEqual(
-            researchramp_license.DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
-            "https://license-dev.areaday.app",
+            researchramp_license.DEFAULT_PRODUCTION_ACTIVATION_SERVER,
+            "https://license.areaday.app",
         )
 
     def test_activation_installs_a_server_signed_license_that_remains_offline(self) -> None:
@@ -230,12 +230,12 @@ class OnlineActivationClientTests(unittest.TestCase):
                     ),
                     patch.object(
                         researchramp_license,
-                        "development_license_path",
+                        "production_license_path",
                         return_value=destination,
                     ),
                     patch.object(
                         researchramp_license,
-                        "development_verifier",
+                        "production_verifier",
                         return_value=self.verifier,
                     ),
                     redirect_stdout(output),

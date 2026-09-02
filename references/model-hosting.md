@@ -1,6 +1,6 @@
 # Hosting the pinned NLP assets
 
-Use this only when packaging a ResearchRamp release with a Tencent COS, Alibaba OSS, or equivalent HTTPS static asset origin.
+Use this only when packaging an AreaDay release with a Tencent COS, Alibaba OSS, or equivalent HTTPS static asset origin.
 
 ## Required object layout
 

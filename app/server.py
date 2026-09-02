@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run ResearchRamp's unified local application."""
+"""Run AreaDay's unified local application."""
 
 from __future__ import annotations
 
@@ -183,19 +183,19 @@ class AppRuntime:
         instance_id: str | None = None,
     ):
         if not contexts:
-            raise ValueError("ResearchRamp requires at least one registered domain")
+            raise ValueError("AreaDay requires at least one registered domain")
         self.contexts = {context.domain_id: context for context in contexts}
         if len(self.contexts) != len(contexts):
-            raise ValueError("ResearchRamp domain IDs must be unique")
+            raise ValueError("AreaDay domain IDs must be unique")
         if initial_domain_id not in self.contexts:
-            raise ValueError(f"Unknown initial ResearchRamp domain: {initial_domain_id}")
+            raise ValueError(f"Unknown initial AreaDay domain: {initial_domain_id}")
         self.initial_domain_id = initial_domain_id
         self.initial_view = initial_view
         self.registry = registry
         self.standalone = standalone
         self.instance_id = (instance_id or uuid.uuid4().hex).strip()
         if not self.instance_id:
-            raise ValueError("ResearchRamp workbench instance ID cannot be empty")
+            raise ValueError("AreaDay workbench instance ID cannot be empty")
 
     def identity(self) -> dict[str, Any]:
         """Return the complete, side-effect-free launcher identity contract."""
@@ -212,7 +212,7 @@ class AppRuntime:
         selected = domain_id or self.initial_domain_id
         context = self.contexts.get(selected)
         if context is None:
-            raise ValueError(f"Unknown ResearchRamp domain: {selected}")
+            raise ValueError(f"Unknown AreaDay domain: {selected}")
         return context
 
     def app_state(self, domain_id: str | None = None) -> dict[str, Any]:
@@ -312,7 +312,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if not candidates:
             return None
         if len(set(str(value) for value in candidates)) != 1:
-            raise ValueError("Conflicting ResearchRamp domain IDs in one request")
+            raise ValueError("Conflicting AreaDay domain IDs in one request")
         return str(candidates[0])
 
     def _context(
@@ -320,7 +320,7 @@ class AppHandler(BaseHTTPRequestHandler):
     ) -> DomainContext:
         requested = self._requested_domain_id(parsed, body)
         if len(self.runtime.contexts) > 1 and requested is None:
-            raise ValueError("Every scoped request must name its ResearchRamp domain")
+            raise ValueError("Every scoped request must name its AreaDay domain")
         return self.runtime.context(requested)
 
     def do_GET(self) -> None:
@@ -424,7 +424,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_api_json(
                 {
                     "error": (
-                        "页面与本地服务版本不一致，请关闭旧页面并重新启动 ResearchRamp"
+                        "页面与本地服务版本不一致，请关闭旧页面并重新启动 AreaDay"
                     )
                 },
                 status=HTTPStatus.CONFLICT,
@@ -578,7 +578,7 @@ def parse_args() -> argparse.Namespace:
         "--corpus",
         type=Path,
         help=(
-            "ResearchRamp corpus directory. Loads analysis/vocabulary-map.tsv "
+            "AreaDay corpus directory. Loads analysis/vocabulary-map.tsv "
             "and stores this corpus's calibration state beside it."
         ),
     )
@@ -591,7 +591,7 @@ def parse_args() -> argparse.Namespace:
         "--library",
         type=Path,
         help=(
-            "Explicit ResearchRamp domain registry. Only workspaces already listed "
+            "Explicit AreaDay domain registry. Only workspaces already listed "
             "in this file are loaded; the filesystem is never scanned."
         ),
     )
@@ -641,7 +641,7 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=("vocabulary", "briefs", "review", "schedule"),
         default="vocabulary",
-        help="Initial page shown by the unified local ResearchRamp interface.",
+        help="Initial page shown by the unified local AreaDay interface.",
     )
     parser.add_argument(
         "--exit-on-settings-save",
@@ -728,7 +728,7 @@ def _workspace_context(
         continuous_store.terminology_catalog().list_terms()
     except (OSError, sqlite3.Error) as error:
         raise RuntimeError(
-            "ResearchRamp could not initialize domain state for "
+            "AreaDay could not initialize domain state for "
             f"{registration.domain_id} at {workspace / 'continuous'}: {error}"
         ) from error
     return DomainContext(
@@ -751,7 +751,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
         registry = DomainRegistry(args.library)
         if not registry.domains:
             raise ValueError(
-                "ResearchRamp domain registry is empty; complete and register an init first"
+                "AreaDay domain registry is empty; complete and register an init first"
             )
         global_learning_path = (
             args.library.expanduser().resolve().parent / "global-learning.sqlite3"
@@ -760,7 +760,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
             learning_store = GlobalLearningStore(global_learning_path)
         except (OSError, sqlite3.Error) as error:
             raise RuntimeError(
-                "ResearchRamp could not initialize global learning state at "
+                "AreaDay could not initialize global learning state at "
                 f"{global_learning_path}: {error}"
             ) from error
         if (
@@ -782,7 +782,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
             completed_registrations.append(item)
         if not completed_registrations:
             raise ValueError(
-                "ResearchRamp domains are registered, but none has completed initialization"
+                "AreaDay domains are registered, but none has completed initialization"
             )
         completed_domain_ids = {
             item.domain_id for item in completed_registrations
@@ -790,7 +790,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
         if args.domain is not None and args.domain not in completed_domain_ids:
             registry.get(args.domain)
             raise ValueError(
-                f"ResearchRamp domain is registered but initialization is incomplete: {args.domain}"
+                f"AreaDay domain is registered but initialization is incomplete: {args.domain}"
             )
         contexts = [
             _workspace_context(
@@ -812,7 +812,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
                 context.continuous_store.migrate_legacy_learning()
             except (OSError, sqlite3.Error) as error:
                 raise RuntimeError(
-                    "ResearchRamp could not migrate domain state for "
+                    "AreaDay could not migrate domain state for "
                     f"{context.domain_id} while accessing "
                     f"{context.workspace / 'continuous'} and "
                     f"{global_learning_path}: "
@@ -822,7 +822,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
         if initial_domain_id not in completed_domain_ids:
             initial_domain_id = completed_registrations[0].domain_id
         if initial_domain_id is None:
-            raise ValueError("ResearchRamp domain registry has no active domain")
+            raise ValueError("AreaDay domain registry has no active domain")
         runtime = AppRuntime(
             contexts,
             initial_domain_id=initial_domain_id,
@@ -856,7 +856,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
                 continuous_store.terminology_catalog().list_terms()
             except (OSError, sqlite3.Error) as error:
                 raise RuntimeError(
-                    "ResearchRamp could not initialize corpus state at "
+                    "AreaDay could not initialize corpus state at "
                     f"{workspace / 'continuous'}: {error}"
                 ) from error
         context = DomainContext(
@@ -893,7 +893,7 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
 
     selected = runtime.context(runtime.initial_domain_id)
     if args.mode == "schedule" and not selected.session.public_state()["complete"]:
-        raise RuntimeError("请先运行 $researchramp init 并完成30题词汇校准，再设置持续服务")
+        raise RuntimeError("请先运行 $areaday init 并完成30题词汇校准，再设置持续服务")
     return runtime
 
 
@@ -910,7 +910,7 @@ def main() -> None:
     url = f"http://{args.host}:{args.port}"
     selected = runtime.context(runtime.initial_domain_id)
     print(
-        f"Loaded {len(runtime.contexts):,} ResearchRamp domain(s); "
+        f"Loaded {len(runtime.contexts):,} AreaDay domain(s); "
         f"active domain: {selected.display_name}"
     )
     print(f"Open {url}")

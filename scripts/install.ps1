@@ -11,6 +11,7 @@ $RuntimeDir = if ($env:RESEARCHRAMP_RUNTIME_DIR) { $env:RESEARCHRAMP_RUNTIME_DIR
 $VenvDir = if ($env:RESEARCHRAMP_VENV_DIR) { $env:RESEARCHRAMP_VENV_DIR } else { Join-Path $SkillDir ".venv" }
 $ModelDir = if ($env:RESEARCHRAMP_MODEL_DIR) { $env:RESEARCHRAMP_MODEL_DIR } else { Join-Path $HOME ".researchramp\models\sentence-transformers" }
 $SetupScript = Join-Path $ScriptDir "setup_dependencies.py"
+$MigrationScript = Join-Path $ScriptDir "migrate_areaday_data.py"
 $OpenAlexSetupScript = Join-Path $ScriptDir "configure_openalex.ps1"
 $OpenAlexConfig = Join-Path $HOME ".researchramp\credentials.ini"
 $OpenAlexSetupProcess = $null
@@ -18,7 +19,7 @@ $OpenAlexSetupProcess = $null
 if ($Mode -eq "check") {
     $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $VenvPython -PathType Leaf)) {
-        Write-Error "ResearchRamp runtime is not installed at $VenvDir"
+        Write-Error "AreaDay runtime is not installed at $VenvDir"
         exit 1
     }
     & $VenvPython $SetupScript --venv-dir $VenvDir --model-dir $ModelDir
@@ -84,6 +85,11 @@ $env:UV_CACHE_DIR = Join-Path $RuntimeDir "cache"
 & $UvBin run --isolated --no-project --no-config --managed-python --python 3.12 $SetupScript --install --venv-dir $VenvDir --model-dir $ModelDir
 $SetupExitCode = $LASTEXITCODE
 if ($SetupExitCode -eq 0) {
+    $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+    & $VenvPython $MigrationScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "AreaDay data migration did not complete."
+    }
     if ($null -ne $OpenAlexSetupProcess) {
         $OpenAlexSetupProcess.WaitForExit()
         if ($OpenAlexSetupProcess.ExitCode -ne 0) {

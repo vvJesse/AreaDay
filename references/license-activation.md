@@ -1,13 +1,12 @@
 ---
-description: "Show the device code, activate or inspect a development license, or preflight personal-vocabulary prediction access."
+description: "Show the device code, activate or inspect an AreaDay license, or preflight personal-vocabulary prediction access."
 ---
 
-# ResearchRamp development-license activation
+# AreaDay license activation
 
-This reference applies only to the isolated licensing preview. The Cloudflare
-development activation service, signing key, D1 database, product identifier,
-and application-data directory are separate from the future production license
-environment.
+This reference applies to the production AreaDay license environment. The
+development Worker, database, keys, licenses, and device slots are isolated and
+must never be treated as production records.
 
 Use one command from the Skill directory:
 
@@ -21,12 +20,12 @@ Use one command from the Skill directory:
 
 On Windows, use `.venv\Scripts\python.exe` instead. For `activate`, use only the
 activation key the user explicitly supplied. The command sends the activation
-key and current device code to the configured development service, validates
+key and current device code to the configured production service, validates
 the returned signature, and atomically installs the license. Never ask the user
 to locate or move the resulting license file.
 
-The default development endpoint is the isolated HTTPS Cloudflare Worker at
-`https://license-dev.areaday.app`. A connection failure may return
+The default endpoint is the HTTPS Cloudflare Worker at
+`https://license.areaday.app`. A connection failure may return
 `activation_service_unavailable`. Do not weaken TLS, use an unofficial proxy,
 or treat that network error as a bad key.
 
@@ -48,10 +47,10 @@ repair, or construct a license file.
 Report the command's stable result:
 
 - `device_ready`: give the user the exact device code to send to the seller.
-- `license_activated`: confirm the development license ID and report the device
+- `license_activated`: confirm the license ID and report the device
   slots returned by the service.
-- `license_installed`: confirm the development license ID and licensed customer.
-- `license_valid`: confirm the installed development license is valid on this
+- `license_installed`: confirm the license ID and licensed customer.
+- `license_valid`: confirm the installed license is valid on this
   computer.
 - `license_error`: explain its `code` and `error` without treating it as a
   network failure.
@@ -62,7 +61,7 @@ as an invalid local license.
 
 Creating a new personalized vocabulary is a separate licensed online operation.
 After the local mini corpus exists, the workbench sends only compact word
-statistics and isolated-word answers to the same development endpoint. It never
+statistics and isolated-word answers to the same production endpoint. It never
 sends PDFs, extracted text, sentences, source papers, URLs, or local paths.
 `calibration_service_unavailable` means that the prediction service could not be
 reached; it does not mean the installed license is invalid. A previously
@@ -81,7 +80,7 @@ and returns one of these stable results:
 - `prediction_service_error`: stop and report the exact code without calling it
   a bad license.
 
-The four public ResearchRamp business entrypoints are development-license
+The four public AreaDay business entrypoints are license
 gated. The familiarity-prediction core is now server-side, so changing the local
-gate cannot reproduce that protected function. This development service is not
-the production sales environment and must not be described as one.
+gate cannot reproduce that protected function. Do not redirect production
+requests to the isolated development service.

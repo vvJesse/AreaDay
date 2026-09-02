@@ -34,7 +34,7 @@ class PredictionPreflightTests(unittest.TestCase):
     def test_missing_local_license_stops_before_contacting_the_server(self) -> None:
         verifier = Mock()
         verifier.status.side_effect = LicenseError(
-            "license_missing", "No ResearchRamp license is installed."
+            "license_missing", "No AreaDay license is installed."
         )
         client = FakeClient()
 

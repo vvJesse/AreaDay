@@ -1,4 +1,4 @@
 interface:
-  display_name: "ResearchRamp"
+  display_name: "AreaDay"
   short_description: "Open a local research vocabulary, briefs, and review workbench"
-  default_prompt: "使用 $researchramp 打开我的本地研究工作台。"
+  default_prompt: "使用 $areaday 打开我的本地研究工作台。"

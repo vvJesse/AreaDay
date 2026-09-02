@@ -10,12 +10,12 @@ from typing import Any
 
 from remote_calibration import CalibrationServiceError, RemoteCalibrationClient
 from researchramp_license import (
-    DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
+    DEFAULT_PRODUCTION_ACTIVATION_SERVER,
     LicenseError,
     LicenseVerifier,
     current_device_id,
-    development_license_path,
-    development_verifier,
+    production_license_path,
+    production_verifier,
 )
 
 
@@ -26,8 +26,8 @@ def prediction_preflight_status(
     device_id: str | None = None,
     client: RemoteCalibrationClient | Any | None = None,
 ) -> dict[str, str]:
-    selected_verifier = verifier or development_verifier()
-    selected_path = license_path or development_license_path()
+    selected_verifier = verifier or production_verifier()
+    selected_path = license_path or production_license_path()
     selected_device = device_id or current_device_id()
     try:
         selected_verifier.status(
@@ -38,7 +38,7 @@ def prediction_preflight_status(
         if not isinstance(envelope, dict):
             raise LicenseError(
                 "license_format_invalid",
-                "The installed ResearchRamp license is invalid.",
+                "The installed AreaDay license is invalid.",
             )
     except LicenseError as error:
         return {
@@ -50,7 +50,7 @@ def prediction_preflight_status(
         return {
             "status": "license_required",
             "code": "license_unreadable",
-            "error": "ResearchRamp could not read the installed license.",
+            "error": "AreaDay could not read the installed license.",
         }
 
     selected_client = client or RemoteCalibrationClient()
@@ -76,8 +76,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--server",
-        default=DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
-        help="AreaDay development prediction-service address.",
+        default=DEFAULT_PRODUCTION_ACTIVATION_SERVER,
+        help="AreaDay prediction-service address.",
     )
     return parser.parse_args()
 

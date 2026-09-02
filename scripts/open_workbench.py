@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reuse or start the local ResearchRamp workbench and print its exact URL."""
+"""Reuse or start the local AreaDay workbench and print its exact URL."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from urllib.parse import quote
 
 from domain_registry import (
     DomainRegistry,
+    default_registry_path,
     validate_completed_workspace,
     validate_initialized_workspace,
 )
@@ -130,7 +131,7 @@ def probe_workbench(
             errno.EPERM,
         }:
             raise WorkbenchAccessError(
-                "ResearchRamp could not access its loopback identity endpoint at "
+                "AreaDay could not access its loopback identity endpoint at "
                 f"http://{HOST}:{port}{WORKBENCH_IDENTITY_PATH}: {error}. "
                 "No service was accepted or left running."
             ) from error
@@ -174,7 +175,7 @@ def probe_workbench(
         return ProbeResult(
             ProbeKind.OCCUPIED_UNKNOWN,
             identity=identity,
-            detail="service identity does not match ResearchRamp",
+            detail="service identity does not match AreaDay",
         )
     identity_version = identity.get("identity_version")
     if (
@@ -184,7 +185,7 @@ def probe_workbench(
         return ProbeResult(
             ProbeKind.INCOMPATIBLE,
             identity=identity,
-            detail="ResearchRamp workbench identity version is incompatible",
+            detail="AreaDay workbench identity version is incompatible",
         )
 
     actual_registry = identity.get("registry")
@@ -193,19 +194,19 @@ def probe_workbench(
         return ProbeResult(
             ProbeKind.OTHER_REGISTRY,
             identity=identity,
-            detail="ResearchRamp is running in standalone mode",
+            detail="AreaDay is running in standalone mode",
         )
     if not isinstance(actual_registry, str) or not actual_registry.strip():
         return ProbeResult(
             ProbeKind.INCOMPATIBLE,
             identity=identity,
-            detail="ResearchRamp identity has no valid registry path",
+            detail="AreaDay identity has no valid registry path",
         )
     if not isinstance(instance_id, str) or not instance_id.strip():
         return ProbeResult(
             ProbeKind.INCOMPATIBLE,
             identity=identity,
-            detail="ResearchRamp identity has no valid instance ID",
+            detail="AreaDay identity has no valid instance ID",
         )
 
     registry_identity = Path(actual_registry).expanduser()
@@ -213,7 +214,7 @@ def probe_workbench(
         return ProbeResult(
             ProbeKind.INCOMPATIBLE,
             identity=identity,
-            detail="ResearchRamp registry identity is not an absolute path",
+            detail="AreaDay registry identity is not an absolute path",
         )
 
     expected_registry = registry_path.expanduser().resolve()
@@ -223,7 +224,7 @@ def probe_workbench(
         return ProbeResult(
             ProbeKind.INCOMPATIBLE,
             identity=identity,
-            detail=f"ResearchRamp registry identity is invalid: {error}",
+            detail=f"AreaDay registry identity is invalid: {error}",
         )
     if resolved_registry != expected_registry:
         return ProbeResult(
@@ -245,7 +246,7 @@ def probe_workbench(
         return ProbeResult(
             ProbeKind.INCOMPATIBLE,
             identity=identity,
-            detail="ResearchRamp identity has no valid sorted domain ID list",
+            detail="AreaDay identity has no valid sorted domain ID list",
         )
     if expected_domain_ids is not None:
         expected = tuple(sorted(set(expected_domain_ids)))
@@ -266,7 +267,7 @@ def launchable_registry_domain_ids(
 ) -> tuple[str, ...]:
     if not registry.domains:
         raise RuntimeError(
-            "No ResearchRamp domain is registered; run initialization first"
+            "No AreaDay domain is registered; run initialization first"
         )
     completed: list[str] = []
     for item in registry.domains:
@@ -295,12 +296,12 @@ def select_registry_domain(
         registry.get(requested)
         if requested not in completed:
             raise RuntimeError(
-                f"ResearchRamp domain is registered but initialization is incomplete: {requested}"
+                f"AreaDay domain is registered but initialization is incomplete: {requested}"
             )
         return requested
     if not completed:
         raise RuntimeError(
-            "ResearchRamp domains are registered, but none has completed initialization"
+            "AreaDay domains are registered, but none has completed initialization"
         )
     if registry.active_domain_id in completed:
         return str(registry.active_domain_id)
@@ -383,7 +384,7 @@ def start_workbench(
                 raise cleanup_error from error
         if isinstance(error, (OSError, ValueError)):
             raise WorkbenchStartupError(
-                "ResearchRamp could not create its workbench process. "
+                "AreaDay could not create its workbench process. "
                 f"Log: {log_path}. Cause: {error}"
             ) from error
         raise
@@ -430,7 +431,7 @@ def stop_launch_attempt(attempt: LaunchAttempt) -> None:
     process_id = getattr(process, "pid", "unknown")
     detail = "; ".join(failures) or "process remains live"
     raise WorkbenchCleanupError(
-        "ResearchRamp could not confirm that its launcher-owned child stopped. "
+        "AreaDay could not confirm that its launcher-owned child stopped. "
         f"PID: {process_id}. Log: {attempt.log_path}. Cause: {detail}"
     )
 
@@ -449,21 +450,21 @@ def startup_log_excerpt(log_path: Path) -> str:
 def _conflict(port: int, result: ProbeResult) -> WorkbenchConflict:
     if result.kind is ProbeKind.OTHER_REGISTRY:
         return WorkbenchConflict(
-            f"Port {port} is running ResearchRamp for another registry: {result.detail}"
+            f"Port {port} is running AreaDay for another registry: {result.detail}"
         )
     if result.kind is ProbeKind.INCOMPATIBLE:
         return WorkbenchConflict(
-            f"Port {port} is running an incompatible ResearchRamp service: {result.detail}"
+            f"Port {port} is running an incompatible AreaDay service: {result.detail}"
         )
     if result.kind is ProbeKind.STALE_RUNTIME:
         return WorkbenchConflict(
-            f"Port {port} is running ResearchRamp for this registry, but its "
+            f"Port {port} is running AreaDay for this registry, but its "
             "loaded domain set is stale. Stop that workbench and open it again. "
             f"Details: {result.detail}"
         )
     return WorkbenchConflict(
         f"Port {port} is occupied by a service that cannot be identified as "
-        f"ResearchRamp: {result.detail or 'unknown response'}"
+        f"AreaDay: {result.detail or 'unknown response'}"
     )
 
 
@@ -502,7 +503,7 @@ def ensure_workbench(
     )
     if domain_id not in expected_domain_ids:
         raise ValueError(
-            f"Selected ResearchRamp domain is not in the completed set: {domain_id}"
+            f"Selected AreaDay domain is not in the completed set: {domain_id}"
         )
     if probe is None:
         def probe_live(candidate_port: int, candidate_registry: Path) -> ProbeResult:
@@ -565,7 +566,7 @@ def ensure_workbench(
                             )
                         raise conflict
                     message = (
-                        "The ResearchRamp workbench stopped during startup "
+                        "The AreaDay workbench stopped during startup "
                         f"with exit code {return_code}. Last port state: "
                         f"{last_probe.kind.value}"
                     )
@@ -598,7 +599,7 @@ def ensure_workbench(
                     raise _conflict(port, final_probe)
                 excerpt = startup_log_excerpt(attempt.log_path)
                 message = (
-                    "The ResearchRamp workbench did not become ready in time. "
+                    "The AreaDay workbench did not become ready in time. "
                     f"Last port state: {last_probe.kind.value}. Log: {attempt.log_path}"
                 )
                 if excerpt:
@@ -613,11 +614,10 @@ def ensure_workbench(
 def main() -> None:
     args = parse_args()
     enforce_business_license("workbench")
-    skill_root = Path(__file__).resolve().parents[1]
     registry_path = (
         args.registry.expanduser().resolve()
         if args.registry is not None
-        else skill_root / "researchramp-data" / "real-domains.json"
+        else default_registry_path()
     )
     registry = DomainRegistry(registry_path)
     ready_calibration_domain = getattr(

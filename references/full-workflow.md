@@ -1,9 +1,9 @@
 ---
 name: researchramp-full-workflow
-description: "Prepare one confirmed ResearchRamp domain, launch its verified calibration workbench, and finish the personalized vocabulary after the user's answers."
+description: "Prepare one confirmed AreaDay domain, launch its verified calibration workbench, and finish the personalized vocabulary after the user's answers."
 ---
 
-# ResearchRamp first-time workflow
+# AreaDay first-time workflow
 
 Use this reference only when establishing or rebuilding a research domain. An
 ordinary request to open vocabulary, briefs, review, or domain switching uses
@@ -97,7 +97,7 @@ the embedding model. Success requires exit code 0 and the final offline
 verification reporting `"status": "ok"` after real spaCy and 384-dimensional
 embedding inference. Do not create a second environment.
 
-ResearchRamp uses OpenAlex and optionally arXiv; `arxiv-mcp-server` is not a
+AreaDay uses OpenAlex and optionally arXiv; `arxiv-mcp-server` is not a
 dependency. If `~/.researchramp/credentials.ini` has not been configured, use
 the platform `configure_openalex` launcher. Never ask the user to paste an API
 key into chat, never print it, and never store it in corpus artifacts. A saved

@@ -105,7 +105,7 @@ class LicenseActivationTests(unittest.TestCase):
         self.assertEqual(same, self.device_id)
         self.assertNotEqual(other, self.device_id)
         self.assertNotEqual(windows, self.device_id)
-        self.assertRegex(self.device_id, r"^RRD1-MAC-[A-Z2-7]{52}$")
+        self.assertRegex(self.device_id, r"^AD1-MAC-[A-Z2-7]{52}$")
 
     def test_valid_perpetual_license_verifies_for_current_device(self) -> None:
         result = self.verifier.verify_bytes(

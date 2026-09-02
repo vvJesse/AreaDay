@@ -8,6 +8,7 @@ RUNTIME_DIR=${RESEARCHRAMP_RUNTIME_DIR:-"$SKILL_DIR/.runtime"}
 VENV_DIR=${RESEARCHRAMP_VENV_DIR:-"$SKILL_DIR/.venv"}
 MODEL_DIR=${RESEARCHRAMP_MODEL_DIR:-"$HOME/.researchramp/models/sentence-transformers"}
 SETUP_SCRIPT="$SCRIPT_DIR/setup_dependencies.py"
+MIGRATION_SCRIPT="$SCRIPT_DIR/migrate_areaday_data.py"
 OPENALEX_SETUP_SCRIPT="$SCRIPT_DIR/configure_openalex.sh"
 OPENALEX_CONFIG="$HOME/.researchramp/credentials.ini"
 MODE=${1:---install}
@@ -50,7 +51,7 @@ esac
 if [ "$MODE" = "--check" ]; then
   VENV_PYTHON="$VENV_DIR/bin/python"
   if [ ! -x "$VENV_PYTHON" ]; then
-    echo "ResearchRamp runtime is not installed at $VENV_DIR" >&2
+    echo "AreaDay runtime is not installed at $VENV_DIR" >&2
     exit 1
   fi
   exec "$VENV_PYTHON" "$SETUP_SCRIPT" \
@@ -109,6 +110,7 @@ if "$UV_BIN" run --isolated --no-project --no-config --managed-python --python 3
   --install \
   --venv-dir "$VENV_DIR" \
   --model-dir "$MODEL_DIR"; then
+  "$VENV_DIR/bin/python" "$MIGRATION_SCRIPT"
   wait_for_openalex_setup
   echo "Installation verified; removing the disposable package-download cache..."
   if ! "$UV_BIN" cache clean --no-config; then

@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from researchramp_license import (
-    DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
-    development_license_path,
+    DEFAULT_PRODUCTION_ACTIVATION_SERVER,
+    production_license_path,
 )
 
 
@@ -68,7 +68,7 @@ def vocabulary_snapshot_sha256(words: list[Any]) -> str:
 class RemoteCalibrationClient:
     def __init__(
         self,
-        endpoint: str = DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
+        endpoint: str = DEFAULT_PRODUCTION_ACTIVATION_SERVER,
         *,
         timeout: float = 20.0,
     ) -> None:
@@ -193,7 +193,7 @@ class RemoteCalibrationSession:
         self.corpus_label = corpus_label
         self.enforce_snapshot_match = enforce_snapshot_match
         self.client = client or RemoteCalibrationClient()
-        self.license_path = license_path or development_license_path()
+        self.license_path = license_path or production_license_path()
         self.snapshot = vocabulary_snapshot_sha256(words)
         self.session_id = ""
         self.answers: list[dict[str, Any]] = []

@@ -129,7 +129,7 @@ class LicenseGateTests(unittest.TestCase):
                 "status": "license_required",
                 "operation": "initialization",
                 "code": "license_missing",
-                "error": "No ResearchRamp license is installed.",
+                "error": "No AreaDay license is installed.",
             },
         )
 

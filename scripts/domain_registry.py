@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit local registry for isolated ResearchRamp research domains.
+"""Explicit local registry for isolated AreaDay research domains.
 
 The registry stores labels and user-confirmed workspace paths only. It never
 searches the filesystem for corpora and it never copies vocabulary or brief
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from terminology_assets import load_finalized_terminology
+from migrate_areaday_data import areaday_data_root
 
 
 SCHEMA_VERSION = 1
@@ -30,9 +31,9 @@ def utc_iso() -> str:
 
 
 def default_registry_path() -> Path:
-    """Return this Skill instance's registry without creating or reading it."""
+    """Return AreaDay's stable registry without creating or reading it."""
 
-    return Path(__file__).resolve().parents[1] / "researchramp-data" / "real-domains.json"
+    return areaday_data_root() / "real-domains.json"
 
 
 def _read_profile(workspace: Path) -> dict[str, Any]:
@@ -52,7 +53,7 @@ def _read_profile(workspace: Path) -> dict[str, Any]:
 def _normalized_domain_id(value: str) -> str:
     candidate = value.strip().lower()
     if not DOMAIN_ID_PATTERN.fullmatch(candidate):
-        raise ValueError(f"Invalid ResearchRamp domain ID: {candidate}")
+        raise ValueError(f"Invalid AreaDay domain ID: {candidate}")
     return candidate
 
 
@@ -61,12 +62,12 @@ def validate_registration_workspace(workspace: Path) -> dict[str, Any]:
 
     resolved = workspace.expanduser().resolve()
     if not resolved.is_dir():
-        raise FileNotFoundError(f"ResearchRamp workspace not found: {resolved}")
+        raise FileNotFoundError(f"AreaDay workspace not found: {resolved}")
     profile = _read_profile(resolved)
     if profile.get("confirmed") is not True:
-        raise ValueError(f"ResearchRamp profile is not confirmed: {resolved}")
+        raise ValueError(f"AreaDay profile is not confirmed: {resolved}")
     if not str(profile.get("profile_id") or "").strip():
-        raise ValueError(f"ResearchRamp profile ID is missing: {resolved}")
+        raise ValueError(f"AreaDay profile ID is missing: {resolved}")
     return profile
 
 
@@ -83,7 +84,7 @@ def _validate_corpus_assets(
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise FileNotFoundError(
-            "ResearchRamp initialization is incomplete; missing: " + ", ".join(missing)
+            "AreaDay initialization is incomplete; missing: " + ", ".join(missing)
         )
 
     if require_orthography_review:
@@ -96,7 +97,7 @@ def _validate_corpus_assets(
         ]
         if missing:
             raise FileNotFoundError(
-                "ResearchRamp initialization is incomplete; missing: "
+                "AreaDay initialization is incomplete; missing: "
                 + ", ".join(missing)
             )
         try:
@@ -155,7 +156,7 @@ def validate_completed_workspace(workspace: Path) -> dict[str, Any]:
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise FileNotFoundError(
-            "ResearchRamp initialization is incomplete; missing: " + ", ".join(missing)
+            "AreaDay initialization is incomplete; missing: " + ", ".join(missing)
         )
     try:
         session = json.loads(required[1].read_text(encoding="utf-8"))
@@ -165,20 +166,20 @@ def validate_completed_workspace(workspace: Path) -> dict[str, Any]:
     answers = session.get("answers")
     counts = result.get("counts")
     if not isinstance(answers, list) or len(answers) != 30 or not isinstance(counts, dict):
-        raise ValueError(f"ResearchRamp calibration is not complete: {resolved}")
+        raise ValueError(f"AreaDay calibration is not complete: {resolved}")
     if not isinstance(result.get("threshold"), dict) or not isinstance(
         result.get("importance"), dict
     ):
-        raise ValueError(f"ResearchRamp calibration result is incomplete: {resolved}")
+        raise ValueError(f"AreaDay calibration result is incomplete: {resolved}")
     if not str(result.get("vocabulary_snapshot_sha256") or ""):
-        raise ValueError(f"ResearchRamp calibration snapshot is missing: {resolved}")
+        raise ValueError(f"AreaDay calibration snapshot is missing: {resolved}")
     export_bytes = required[3].read_bytes()
     expected_export_hash = str(result.get("personalized_vocabulary_sha256") or "")
     if not expected_export_hash or hashlib.sha256(export_bytes).hexdigest() != expected_export_hash:
-        raise ValueError(f"ResearchRamp personalized vocabulary is inconsistent: {resolved}")
+        raise ValueError(f"AreaDay personalized vocabulary is inconsistent: {resolved}")
     export_rows = max(0, export_bytes.count(b"\n") - 1)
     if export_rows != int(counts.get("total") or 0):
-        raise ValueError(f"ResearchRamp personalized vocabulary row count is inconsistent: {resolved}")
+        raise ValueError(f"AreaDay personalized vocabulary row count is inconsistent: {resolved}")
     return profile
 
 
@@ -238,22 +239,22 @@ class DomainRegistry:
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-            raise ValueError(f"Invalid ResearchRamp domain registry: {self.path}") from error
+            raise ValueError(f"Invalid AreaDay domain registry: {self.path}") from error
         if payload.get("schema_version") != SCHEMA_VERSION:
-            raise ValueError(f"Unsupported ResearchRamp domain registry: {self.path}")
+            raise ValueError(f"Unsupported AreaDay domain registry: {self.path}")
         raw_domains = payload.get("domains")
         if not isinstance(raw_domains, list):
-            raise ValueError("ResearchRamp domain registry requires a domains list")
+            raise ValueError("AreaDay domain registry requires a domains list")
         domains = [DomainRegistration.from_payload(item) for item in raw_domains]
         ids = [item.domain_id for item in domains]
         paths = [item.workspace for item in domains]
         if len(ids) != len(set(ids)):
-            raise ValueError("ResearchRamp domain registry contains duplicate domain IDs")
+            raise ValueError("AreaDay domain registry contains duplicate domain IDs")
         if len(paths) != len(set(paths)):
-            raise ValueError("ResearchRamp domain registry contains duplicate workspace paths")
+            raise ValueError("AreaDay domain registry contains duplicate workspace paths")
         active = payload.get("active_domain_id")
         if active is not None and active not in set(ids):
-            raise ValueError("ResearchRamp registry active domain is not registered")
+            raise ValueError("AreaDay registry active domain is not registered")
         self._domains = domains
         self.active_domain_id = str(active) if active is not None else (ids[0] if ids else None)
 
@@ -274,7 +275,7 @@ class DomainRegistry:
         for item in self._domains:
             if item.domain_id == normalized:
                 return item
-        raise KeyError(f"Unknown ResearchRamp domain: {normalized}")
+        raise KeyError(f"Unknown AreaDay domain: {normalized}")
 
     def register(
         self,

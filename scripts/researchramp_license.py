@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage the local ResearchRamp development license."""
+"""Manage the local AreaDay production license."""
 
 from __future__ import annotations
 
@@ -26,33 +26,25 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 LICENSE_FORMAT = "researchramp-license-envelope-v1"
 SIGNING_DOMAIN = b"researchramp/license/v1\0"
-DEVELOPMENT_PRODUCT = "researchramp-development"
-DEVELOPMENT_MAJOR_VERSION = 1
-DEVELOPMENT_APP_NAME = "ResearchRamp Development"
+PRODUCTION_PRODUCT = "areaday"
+PRODUCTION_MAJOR_VERSION = 1
+PRODUCTION_APP_NAME = "AreaDay"
 MAX_LICENSE_BYTES = 65_536
 MAX_PAYLOAD_BYTES = 16_384
-DEVICE_ID_PATTERN = re.compile(r"^RRD1-(?:MAC|WIN)-[A-Z2-7]{52}$")
+DEVICE_ID_PATTERN = re.compile(r"^AD1-(?:MAC|WIN)-[A-Z2-7]{52}$")
 KEY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 BUSINESS_OPERATIONS = frozenset(
     {"initialization", "workbench", "brief_generation", "scheduling"}
 )
 
-# The development public key is safe to distribute.  Its private half lives
-# outside the ResearchRamp repository and is never included in the Skill.
-DEVELOPMENT_PUBLIC_KEYS: dict[str, bytes] = {
-    "development-2026-01": base64.urlsafe_b64decode(
-        "nSZ1UEhcGwNJM9VUsXYdEGcx7G6CpfMTRFi0dcEK7XU="
-    ),
-    "online-development-2026-01": base64.urlsafe_b64decode(
-        "nSZ1UEhcGwNJM9VUsXYdEGcx7G6CpfMTRFi0dcEK7XU="
-    ),
-    "cloudflare-development-2026-01": base64.urlsafe_b64decode(
-        "SeI4CqiPDr2JXFv6OVCaTe0XaJNYbnMIUBK--Cgc5lg="
+# The production public key is safe to distribute. Its private half remains in
+# the private AreaDay infrastructure and is never included in the Skill.
+PRODUCTION_PUBLIC_KEYS: dict[str, bytes] = {
+    "areaday-production-2026-01": base64.urlsafe_b64decode(
+        "diTigQBN3Uf9OdzabIh6pMOdG6Dt31TyffjoDogUnJs="
     ),
 }
-DEFAULT_DEVELOPMENT_ACTIVATION_SERVER = (
-    "https://license-dev.areaday.app"
-)
+DEFAULT_PRODUCTION_ACTIVATION_SERVER = "https://license.areaday.app"
 MAX_ACTIVATION_RESPONSE_BYTES = 131_072
 
 
@@ -96,7 +88,7 @@ def _platform_name(value: str) -> tuple[str, str]:
         return "windows", "WIN"
     raise LicenseError(
         "device_platform_unsupported",
-        "ResearchRamp development licensing supports macOS and Windows only.",
+        "AreaDay licensing supports macOS and Windows only.",
     )
 
 
@@ -118,13 +110,13 @@ def derive_device_id(platform_name: str, raw_system_id: str) -> str:
             "The operating system did not provide a usable device UUID.",
         )
     digest = hashlib.sha256(
-        b"researchramp/device/v1\0"
+        b"areaday/device/v1\0"
         + platform.encode("ascii")
         + b"\0"
         + normalized_uuid.encode("ascii")
     ).digest()
     encoded = base64.b32encode(digest).decode("ascii").rstrip("=")
-    return f"RRD1-{label}-{encoded}"
+    return f"AD1-{label}-{encoded}"
 
 
 def _command_output(command: list[str]) -> str:
@@ -139,12 +131,12 @@ def _command_output(command: list[str]) -> str:
     except (OSError, subprocess.SubprocessError) as error:
         raise LicenseError(
             "device_identity_unavailable",
-            "ResearchRamp could not read this computer's device identity.",
+            "AreaDay could not read this computer's device identity.",
         ) from error
     if completed.returncode != 0:
         raise LicenseError(
             "device_identity_unavailable",
-            "ResearchRamp could not read this computer's device identity.",
+            "AreaDay could not read this computer's device identity.",
         )
     return completed.stdout
 
@@ -189,7 +181,7 @@ def current_device_id(platform_name: str | None = None) -> str:
     return derive_device_id(selected, raw_system_id)
 
 
-def development_license_path(platform_name: str | None = None) -> Path:
+def production_license_path(platform_name: str | None = None) -> Path:
     selected, _ = _platform_name(platform_name or sys.platform)
     if selected == "macos":
         root = Path.home() / "Library" / "Application Support"
@@ -201,7 +193,7 @@ def development_license_path(platform_name: str | None = None) -> Path:
                 "Windows did not provide its local application-data directory.",
             )
         root = Path(local_app_data)
-    return root / DEVELOPMENT_APP_NAME / "license.rrlicense"
+    return root / PRODUCTION_APP_NAME / "license.rrlicense"
 
 
 def _object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -394,7 +386,7 @@ class LicenseVerifier:
         if len(device_ids_value) > 3:
             raise LicenseError(
                 "license_device_limit",
-                "A ResearchRamp license cannot contain more than three devices.",
+                "An AreaDay license cannot contain more than three devices.",
             )
         if any(
             not isinstance(item, str) or DEVICE_ID_PATTERN.fullmatch(item) is None
@@ -412,7 +404,7 @@ class LicenseVerifier:
         if license_type != "perpetual":
             raise LicenseError(
                 "license_type_invalid",
-                "The ResearchRamp license type is not supported.",
+                "The AreaDay license type is not supported.",
             )
         if product != self.product:
             raise LicenseError(
@@ -422,7 +414,7 @@ class LicenseVerifier:
         if major_version != self.major_version:
             raise LicenseError(
                 "license_version_mismatch",
-                "The license does not authorize this ResearchRamp major version.",
+                "The license does not authorize this AreaDay major version.",
             )
         if current_device_id not in device_ids_value:
             message = "This computer is not registered in the license."
@@ -452,12 +444,12 @@ class LicenseVerifier:
         except FileNotFoundError as error:
             raise LicenseError(
                 "license_missing",
-                "No ResearchRamp license is installed.",
+                "No AreaDay license is installed.",
             ) from error
         except OSError as error:
             raise LicenseError(
                 "license_unreadable",
-                "ResearchRamp could not read the license file.",
+                "AreaDay could not read the license file.",
             ) from error
         return self.verify_bytes(encoded, current_device_id=current_device_id)
 
@@ -473,12 +465,12 @@ class LicenseVerifier:
         except FileNotFoundError as error:
             raise LicenseError(
                 "license_source_missing",
-                "The selected ResearchRamp license file does not exist.",
+                "The selected AreaDay license file does not exist.",
             ) from error
         except OSError as error:
             raise LicenseError(
                 "license_unreadable",
-                "ResearchRamp could not read the selected license file.",
+                "AreaDay could not read the selected license file.",
             ) from error
         return self.install_bytes(
             encoded,
@@ -509,7 +501,7 @@ class LicenseVerifier:
         except OSError as error:
             raise LicenseError(
                 "license_install_failed",
-                "ResearchRamp could not install the validated license.",
+                "AreaDay could not install the validated license.",
             ) from error
         finally:
             temporary.unlink(missing_ok=True)
@@ -538,7 +530,7 @@ class ActivationClient:
         ):
             raise LicenseError(
                 "activation_server_invalid",
-                "The ResearchRamp activation-server address is invalid.",
+                "The AreaDay activation-server address is invalid.",
             )
         self.endpoint = endpoint.rstrip("/")
         self.parsed_endpoint = parsed
@@ -561,7 +553,7 @@ class ActivationClient:
         ):
             raise LicenseError(
                 "activation_key_invalid",
-                "Enter a valid ResearchRamp activation key.",
+                "Enter a valid AreaDay activation key.",
             )
         request_body = json.dumps(
             {
@@ -603,7 +595,7 @@ class ActivationClient:
         except (http.client.HTTPException, TimeoutError, OSError) as error:
             raise LicenseError(
                 "activation_service_unavailable",
-                "ResearchRamp could not reach the activation service.",
+                "AreaDay could not reach the activation service.",
             ) from error
         finally:
             connection.close()
@@ -624,7 +616,7 @@ class ActivationClient:
         if response_body["status"] != "activated":
             raise LicenseError(
                 "activation_response_invalid",
-                "The activation service did not activate ResearchRamp.",
+                "The activation service did not activate AreaDay.",
             )
         envelope = response_body["license"]
         slots = response_body["device_slots"]
@@ -695,11 +687,11 @@ class ActivationClient:
         raise LicenseError(code, message.strip())
 
 
-def development_verifier() -> LicenseVerifier:
+def production_verifier() -> LicenseVerifier:
     return LicenseVerifier(
-        public_keys=DEVELOPMENT_PUBLIC_KEYS,
-        product=DEVELOPMENT_PRODUCT,
-        major_version=DEVELOPMENT_MAJOR_VERSION,
+        public_keys=PRODUCTION_PUBLIC_KEYS,
+        product=PRODUCTION_PRODUCT,
+        major_version=PRODUCTION_MAJOR_VERSION,
     )
 
 
@@ -717,9 +709,9 @@ def require_business_license(
     """Verify one public business operation using only the installed license."""
 
     if operation not in BUSINESS_OPERATIONS:
-        raise ValueError(f"Unknown ResearchRamp business operation: {operation}")
-    selected_verifier = verifier or development_verifier()
-    selected_path = license_path or development_license_path()
+        raise ValueError(f"Unknown AreaDay business operation: {operation}")
+    selected_verifier = verifier or production_verifier()
+    selected_path = license_path or production_license_path()
     selected_device = device_id or current_device_id()
     return selected_verifier.status(
         selected_path,
@@ -759,13 +751,13 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("device-id", help="Show this computer's device code.")
     activate = subparsers.add_parser(
         "activate",
-        help="Activate and automatically install a development license.",
+        help="Activate and automatically install an AreaDay license.",
     )
     activate.add_argument("activation_key")
     activate.add_argument(
         "--server",
-        default=DEFAULT_DEVELOPMENT_ACTIVATION_SERVER,
-        help="Development activation-server address.",
+        default=DEFAULT_PRODUCTION_ACTIVATION_SERVER,
+        help="AreaDay activation-server address.",
     )
     install = subparsers.add_parser("install", help="Validate and install a license file.")
     install.add_argument("license_file", type=Path)
@@ -780,25 +772,25 @@ def main() -> int:
         if args.command == "device-id":
             _output(
                 "device_ready",
-                channel="development",
+                channel="production",
                 device_id=device_id,
             )
             return 0
-        verifier = development_verifier()
-        license_path = development_license_path()
+        verifier = production_verifier()
+        license_path = production_license_path()
         if args.command == "activate":
             platform, _ = _platform_name(sys.platform)
             receipt = ActivationClient(args.server).activate_and_install(
                 activation_key=args.activation_key,
                 device_id=device_id,
                 platform=platform,
-                major_version=DEVELOPMENT_MAJOR_VERSION,
+                major_version=PRODUCTION_MAJOR_VERSION,
                 verifier=verifier,
                 destination=license_path,
             )
             _output(
                 "license_activated",
-                channel="development",
+                channel="production",
                 license_path=str(license_path),
                 license=receipt.license.public_payload(),
                 device_slots={
@@ -815,7 +807,7 @@ def main() -> int:
             )
             _output(
                 "license_installed",
-                channel="development",
+                channel="production",
                 license_path=str(license_path),
                 license=info.public_payload(),
             )
@@ -823,7 +815,7 @@ def main() -> int:
         info = verifier.status(license_path, current_device_id=device_id)
         _output(
             "license_valid",
-            channel="development",
+            channel="production",
             license_path=str(license_path),
             license=info.public_payload(),
         )
