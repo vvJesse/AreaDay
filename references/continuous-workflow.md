@@ -156,6 +156,9 @@ Resolve the domain and obtain the schedule before a task is created. Use
 `scripts/configure_schedule.py` to save only the requested preference and emit
 exactly one automation handoff:
 
+On Windows, replace `.venv/bin/python` below with
+`.\.venv\Scripts\python.exe`.
+
 ```bash
 .venv/bin/python scripts/configure_schedule.py weekly --weekday <1-7> --time <HH:MM> [--domain <domain-id>]
 .venv/bin/python scripts/configure_schedule.py daily --time <HH:MM> [--domain <domain-id>]

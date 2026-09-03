@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 
 
@@ -41,7 +42,22 @@ def prepare_runtime(venv: Path, platform_name: str | None = None) -> Path:
     if not python.is_file():
         raise RuntimeError(f"Bundled Python is missing: {python}")
 
-    if selected not in {"nt", "windows-x64"}:
+    if selected in {"nt", "windows-x64"}:
+        launcher_dir = venv / "Scripts"
+        launcher_source_dir = python.parent / "Lib" / "venv" / "scripts" / "nt"
+        launchers = {
+            launcher_source_dir / "python.exe": launcher_dir / "python.exe",
+            launcher_source_dir / "pythonw.exe": launcher_dir / "pythonw.exe",
+        }
+        missing = [str(source) for source in launchers if not source.is_file()]
+        if missing:
+            raise RuntimeError(
+                "Bundled Windows venv launchers are missing: " + ", ".join(missing)
+            )
+        launcher_dir.mkdir(parents=True, exist_ok=True)
+        for source, destination in launchers.items():
+            shutil.copy2(source, destination)
+    else:
         launcher = venv / "bin" / "python"
         if launcher.exists() or launcher.is_symlink():
             launcher.unlink()

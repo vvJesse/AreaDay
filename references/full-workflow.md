@@ -5,6 +5,9 @@ description: "Prepare one confirmed AreaDay domain, launch its verified calibrat
 
 # AreaDay first-time workflow
 
+Python commands below use `.venv/bin/python` on macOS. On Windows, replace it
+with `.\.venv\Scripts\python.exe` and keep the remaining arguments unchanged.
+
 Use this reference only when establishing or rebuilding a research domain. An
 ordinary request to open vocabulary, briefs, review, or domain switching uses
 the fast path in `SKILL.md`.

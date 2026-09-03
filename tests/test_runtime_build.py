@@ -26,6 +26,7 @@ from prepare_portable_runtime import SEALED_HOME, prepare_runtime, seal_runtime 
 
 
 class RuntimeBuildContractTests(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "win32", "requires POSIX symlink support")
     def test_portable_runtime_config_drops_build_machine_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             venv = Path(temporary) / "venv"
@@ -46,6 +47,37 @@ class RuntimeBuildContractTests(unittest.TestCase):
             config = (venv / "pyvenv.cfg").read_text(encoding="utf-8")
             self.assertIn(f"home = {SEALED_HOME}", config)
             self.assertNotIn("/runner", config)
+
+    def test_windows_runtime_replaces_uv_trampolines_with_stdlib_launchers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            venv = Path(temporary) / "venv"
+            base = venv / "base-python"
+            launcher_sources = base / "Lib" / "venv" / "scripts" / "nt"
+            scripts = venv / "Scripts"
+            launcher_sources.mkdir(parents=True)
+            scripts.mkdir()
+            (base / "python.exe").write_bytes(b"base interpreter")
+            (launcher_sources / "python.exe").write_bytes(b"stdlib console launcher")
+            (launcher_sources / "pythonw.exe").write_bytes(b"stdlib window launcher")
+            (scripts / "python.exe").write_bytes(b"uv trampoline: C:\\runner\\python.exe")
+            (scripts / "pythonw.exe").write_bytes(b"uv trampoline: C:\\runner\\pythonw.exe")
+            (venv / "pyvenv.cfg").write_text(
+                "home = C:\\runner\\python\ncommand = uv venv\n",
+                encoding="utf-8",
+            )
+
+            prepare_runtime(venv, "windows-x64")
+
+            self.assertEqual(
+                (scripts / "python.exe").read_bytes(), b"stdlib console launcher"
+            )
+            self.assertEqual(
+                (scripts / "pythonw.exe").read_bytes(), b"stdlib window launcher"
+            )
+            config = (venv / "pyvenv.cfg").read_text(encoding="utf-8")
+            self.assertIn(f"home = {base}", config)
+            self.assertIn(f"executable = {base / 'python.exe'}", config)
+            self.assertNotIn("C:\\runner", config)
 
     def test_supported_native_platform_mapping_is_explicit(self) -> None:
         self.assertEqual(current_platform_id("darwin", "arm64"), "macos-arm64")
@@ -159,6 +191,20 @@ class RuntimeBuildContractTests(unittest.TestCase):
         self.assertIn('archive_environment["COPYFILE_DISABLE"] = "1"', builder)
         self.assertIn('"--norsrc"', builder)
         self.assertIn("areaday-runtime-proof-", builder)
+        self.assertIn('environment["UV_PYTHON_INSTALL_DIR"] =', builder)
+        self.assertIn('environment["UV_CACHE_DIR"] =', builder)
+        self.assertNotIn('environment.setdefault("UV_PYTHON_INSTALL_DIR"', builder)
+
+    def test_documented_python_commands_are_explicit_for_windows(self) -> None:
+        documents = [ROOT / "SKILL.md", *(ROOT / "references").glob("*.md")]
+        for path in documents:
+            document = path.read_text(encoding="utf-8")
+            if ".venv/bin/python" in document:
+                self.assertIn(
+                    r".\.venv\Scripts\python.exe",
+                    document,
+                    msg=f"Windows Python command is undocumented in {path.name}",
+                )
 
     def test_embedding_download_uses_verified_streaming_payload(self) -> None:
         payload = b"pinned model payload"

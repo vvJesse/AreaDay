@@ -55,6 +55,9 @@ existing registry.
 
 The installer retains the former online setup as a compatibility fallback for
 old, platform-neutral bundles. New platform bundles use the included runtime.
+When OpenAlex has not been configured, installation starts with anonymous
+access so an agent installation never waits for private interactive input. The
+customer may run the platform OpenAlex configuration script later to add a key.
 
 For WorkBuddy manual recovery, place the complete `areaday` folder under the
 user-level `.workbuddy/skills` directory instead. After setup, reopen Codex or

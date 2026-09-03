@@ -78,12 +78,11 @@ extraction directory:
 - Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1`
 
 Allow the setup to finish. The delivery ZIP already contains Python, packages,
-and models; do not download or independently resolve Python dependencies.
-
-The setup may open the OpenAlex instructions. Ask the user only for the value
-that must be entered privately. Never ask them to paste an OpenAlex API key into
-chat, and never print or expose its saved value. The user may choose anonymous
-OpenAlex access when the setup offers it.
+and models; do not download or independently resolve Python dependencies. When
+OpenAlex has not been configured yet, setup selects anonymous access without
+opening a window or waiting for interactive input. The user can later run the
+platform `configure_openalex` script to add a key. Never ask them to paste an
+OpenAlex API key into chat, and never print or expose its saved value.
 
 ### 5. Activate and verify
 
