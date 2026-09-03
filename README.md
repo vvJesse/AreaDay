@@ -1,10 +1,11 @@
 # AreaDay
 
 AreaDay is distributed as a self-contained Skill for Codex and WorkBuddy.
+This is a paid Skill, please ensure you have got a license of activation code from the author before you install it. 
 
 ## Install
 
-Send either of these links to Codex or WorkBuddy and say `安装一下`:
+For user, a simple way to install it is to send either of these links to Codex or WorkBuddy and say `安装一下`:
 
 - Latest release: https://github.com/vvJesse/ResearchRamp/releases/latest
 - This repository: https://github.com/vvJesse/ResearchRamp
