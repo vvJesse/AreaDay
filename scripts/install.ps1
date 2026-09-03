@@ -54,7 +54,11 @@ function Expand-BundledRuntime(
     [System.IO.FileInfo]$RuntimeArchive,
     [string]$Destination
 ) {
-    $Tar = Get-Command tar.exe -CommandType Application -ErrorAction SilentlyContinue
+    # GitHub's Windows runners expose both System32 tar.exe and Git's tar.exe.
+    # Select one command explicitly; otherwise PowerShell expands both Source
+    # values into a single invalid executable name.
+    $Tar = Get-Command tar.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if ($null -ne $Tar) {
         & $Tar.Source -xf $RuntimeArchive.FullName -C $Destination
         if ($LASTEXITCODE -ne 0) {

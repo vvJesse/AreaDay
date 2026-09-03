@@ -31,6 +31,7 @@ class PlatformInstallerContractTests(unittest.TestCase):
         self.assertIn("Assert-BundledRuntime", script)
         self.assertIn("Get-FileHash", script)
         self.assertIn("tar.exe", script)
+        self.assertIn("Select-Object -First 1", script)
         self.assertIn("Assert-WindowsRuntimePath", script)
         self.assertIn("[IO.Path]::GetTempPath()", script)
         self.assertIn('"runtime-only"', script)
