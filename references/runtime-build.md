@@ -17,10 +17,12 @@ there is concrete customer demand, without delaying the supported releases.
 
 The workflow in `.github/workflows/build-runtimes.yml` builds both targets in
 parallel. Each runner creates a relocatable Python 3.12 environment, installs
-the frozen dependencies, downloads the pinned NLP models, moves the runtime to
-prove that it is relocatable, and runs a real offline inference check. It then
-puts that runtime inside the matching customer ZIP and tests the customer ZIP
-through the installer's `runtime-only` path.
+the frozen dependencies, embeds the Python interpreter itself, and downloads
+the pinned NLP models. The build directory is then deleted; the workflow
+extracts the new Runtime ZIP into an unrelated directory and runs a real
+offline inference check. It then puts that verified runtime inside the matching
+customer ZIP and tests the customer ZIP through the installer's `runtime-only`
+path.
 
 ## Run a build
 
@@ -34,13 +36,17 @@ through the installer's `runtime-only` path.
 Each GitHub artifact contains:
 
 - `AreaDay-<platform>-v<version>.zip`: the file to give the customer.
-- `AreaDay-runtime-<platform>-v<version>.zip`: the standalone runtime retained
-  for diagnosis or rebuilding a delivery bundle.
 - `SHA256SUMS-<platform>.txt`: hashes for checking that the downloads are intact.
 
-Give each customer only the AreaDay ZIP matching their computer, together with
-their separately issued `AD1-...` activation key. Do not ask customers to
-download the standalone runtime or assemble folders themselves.
+The standalone Runtime remains inside the customer ZIP and is not uploaded a
+second time. This keeps the downloadable Artifact close to half the former
+size. Give each customer only the AreaDay ZIP matching their computer,
+together with their separately issued `AD1-...` activation key.
+
+To publish without downloading these large files locally, run **Publish
+verified AreaDay release** from `main`, enter the successful Runtime workflow
+run ID and version, and let GitHub transfer the verified customer ZIPs directly
+to the Release.
 
 ## When to rebuild
 

@@ -1,6 +1,13 @@
 ---
 name: areaday
+display_name: AreaDay
+display_name_en: AreaDay
 description: "Build a local research area and personal domain vocabulary, view or generate research briefs, open the AreaDay workbench, or schedule weekly briefs and daily review reminders."
+description_zh: "建立本地研究领域与个人词表，查看研究简报并进行复习。"
+description_en: "Build a local research area and personal vocabulary, read briefs, and review terminology."
+category: education
+version: 1.0.3
+author: AreaDay
 ---
 
 # AreaDay
@@ -22,8 +29,10 @@ activation key and automatically installs the returned license; the user never
 manually copies a license into an application-data directory.
 
 For installation or upgrade requests, read
-[customer-installation.md](references/customer-installation.md) and use the
-matching platform instructions. Never describe the ZIP as a desktop App.
+[INSTALL.md](INSTALL.md) completely, then perform its agent installation
+protocol. Use [customer-installation.md](references/customer-installation.md)
+only as supplementary customer-delivery context. Never describe the ZIP as a
+desktop App or ask the user to perform terminal installation steps for you.
 
 When a business entrypoint returns `license_required`, report its exact `code`
 and `error`, then offer the matching device-code, activation, status, or recovery

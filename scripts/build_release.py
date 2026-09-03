@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 RELEASE_ROOT = "areaday"
-ALLOWED_ROOT_FILES = {"SKILL.md", "requirements.txt"}
+ALLOWED_ROOT_FILES = {"INSTALL.md", "SKILL.md", "requirements.txt"}
 ALLOWED_DIRECTORIES = {"agents", "app", "assets", "references", "scripts"}
 ALLOWED_SUFFIXES = {
     ".css",
@@ -33,6 +33,7 @@ ALLOWED_SUFFIXES = {
 EXCLUDED_NAMES = {
     ".DS_Store",
     "build_release.py",
+    "prepare_release_assets.py",
     "session.json",
 }
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -119,6 +120,10 @@ def build_release(
 ) -> dict[str, object]:
     if VERSION_PATTERN.fullmatch(version) is None:
         raise ValueError("version must use MAJOR.MINOR.PATCH")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    skill_version = re.search(r"(?m)^version:\s*['\"]?([^'\"\s]+)", skill_text)
+    if skill_version is None or skill_version.group(1) != version:
+        raise ValueError("release version must match the version in SKILL.md")
     if (runtime_archive is None) != (platform is None):
         raise ValueError("runtime_archive and platform must be provided together")
     if platform is not None and platform not in PLATFORMS:
@@ -136,6 +141,12 @@ def build_release(
     output.parent.mkdir(parents=True, exist_ok=True)
     files = _release_files(root)
     with zipfile.ZipFile(output, "w") as archive:
+        _write_entry(
+            archive,
+            "INSTALL.md",
+            (root / "INSTALL.md").read_bytes(),
+            0o644,
+        )
         for source in files:
             relative = source.relative_to(root).as_posix()
             mode = 0o755 if source.suffix in {".sh", ".py"} else 0o644
@@ -175,7 +186,7 @@ def build_release(
     digest = _sha256_file(output)
     return {
         "artifact": output.name,
-        "files": len(files) + 1 + (1 if selected_runtime is not None else 0),
+        "files": len(files) + 2 + (1 if selected_runtime is not None else 0),
         "sha256": digest,
         "version": version,
         **({"platform": platform} if platform is not None else {}),

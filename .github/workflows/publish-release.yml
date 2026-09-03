@@ -1,0 +1,73 @@
+name: Publish verified AreaDay release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (MAJOR.MINOR.PATCH)
+        required: true
+        default: 1.0.3
+        type: string
+      run_id:
+        description: Successful Build AreaDay runtimes run ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the main branch
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "Run this release workflow from main." >&2
+            exit 1
+          fi
+
+      - name: Check out release source
+        uses: actions/checkout@v7.0.1
+
+      - name: Confirm source run succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+        shell: bash
+        run: |
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .conclusion)
+          if [ "$conclusion" != "success" ]; then
+            echo "Runtime build $SOURCE_RUN_ID did not succeed." >&2
+            exit 1
+          fi
+
+      - name: Download verified build artifacts inside GitHub
+        uses: actions/download-artifact@v7.0.0
+        with:
+          path: incoming
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Validate and select customer files
+        shell: bash
+        run: |
+          python scripts/prepare_release_assets.py \
+            --input incoming \
+            --output release-assets \
+            --version "${{ inputs.version }}"
+
+      - name: Publish tag and Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          gh release create "$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "AreaDay $VERSION" \
+            --notes "Send this Release URL to Codex or WorkBuddy and say: 安装一下。The agent will select the correct AreaDay ZIP automatically. Supported platforms: Windows x64 and Apple silicon Mac. Intel Macs are not currently supported. Do not install GitHub's Source code archives." \
+            release-assets/*
+

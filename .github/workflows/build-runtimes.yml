@@ -96,7 +96,6 @@ jobs:
         run: |
           cd dist
           shasum -a 256 \
-            "AreaDay-runtime-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip" \
             "AreaDay-$AREADAY_PLATFORM-v$AREADAY_VERSION.zip" \
             > "SHA256SUMS-$AREADAY_PLATFORM.txt"
 
@@ -104,12 +103,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $RuntimeName = "AreaDay-runtime-$env:AREADAY_PLATFORM-v$env:AREADAY_VERSION.zip"
           $BundleName = "AreaDay-$env:AREADAY_PLATFORM-v$env:AREADAY_VERSION.zip"
-          $RuntimeHash = (Get-FileHash -Algorithm SHA256 (Join-Path "dist" $RuntimeName)).Hash.ToLowerInvariant()
           $BundleHash = (Get-FileHash -Algorithm SHA256 (Join-Path "dist" $BundleName)).Hash.ToLowerInvariant()
-          @("$RuntimeHash  $RuntimeName", "$BundleHash  $BundleName") |
-            Set-Content -Encoding ascii "dist/SHA256SUMS-$env:AREADAY_PLATFORM.txt"
+          "$BundleHash  $BundleName" | Set-Content -Encoding ascii "dist/SHA256SUMS-$env:AREADAY_PLATFORM.txt"
 
       - name: Upload verified delivery files
         uses: actions/upload-artifact@v7.0.1
@@ -117,7 +113,6 @@ jobs:
           name: AreaDay-${{ matrix.platform }}-v${{ inputs.version }}
           path: |
             dist/AreaDay-${{ matrix.platform }}-v${{ inputs.version }}.zip
-            dist/AreaDay-runtime-${{ matrix.platform }}-v${{ inputs.version }}.zip
             dist/SHA256SUMS-${{ matrix.platform }}.txt
           if-no-files-found: error
           retention-days: 30

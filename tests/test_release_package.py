@@ -27,6 +27,7 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertGreater(manifest["files"], 20)
             with zipfile.ZipFile(output) as archive:
                 names = set(archive.namelist())
+                install = archive.read("INSTALL.md").decode("utf-8")
                 skill = archive.read("areaday/SKILL.md").decode("utf-8")
                 metadata = archive.read("areaday/agents/openai.yaml").decode("utf-8")
                 text_payload = "\n".join(
@@ -36,6 +37,14 @@ class ReleasePackageTests(unittest.TestCase):
                 )
 
             self.assertIn("name: areaday", skill)
+            self.assertIn("version: 1.0.3", skill)
+            self.assertIn("~/.codex/skills/areaday", install)
+            self.assertIn("~/.workbuddy/skills/areaday", install)
+            self.assertIn("Source code (zip)", install)
+            self.assertIn("GitHub Actions artifact wrapper", install)
+            self.assertIn("releases/latest", (ROOT / "README.md").read_text(encoding="utf-8"))
+            self.assertIn("license_valid", install)
+            self.assertIn("areaday/INSTALL.md", names)
             self.assertIn('display_name: "AreaDay"', metadata)
             self.assertIn("areaday/scripts/install.sh", names)
             self.assertIn("areaday/scripts/install.ps1", names)
@@ -45,6 +54,7 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertFalse(any("cloudflare/" in name for name in names))
             self.assertFalse(any("tests/" in name for name in names))
             self.assertNotIn("areaday/scripts/build_release.py", names)
+            self.assertNotIn("areaday/scripts/prepare_release_assets.py", names)
             self.assertFalse(any("__pycache__" in name for name in names))
             self.assertFalse(any(name.endswith(".rrlicense") for name in names))
             self.assertNotIn("BEGIN PRIVATE KEY", text_payload)
@@ -59,6 +69,15 @@ class ReleasePackageTests(unittest.TestCase):
                     ROOT,
                     Path(temporary) / "AreaDay-latest.zip",
                     version="latest",
+                )
+
+    def test_release_builder_refuses_a_version_different_from_the_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "SKILL.md"):
+                build_release(
+                    ROOT,
+                    Path(temporary) / "AreaDay-v9.9.9.zip",
+                    version="9.9.9",
                 )
 
     def test_platform_release_embeds_only_its_matching_runtime(self) -> None:

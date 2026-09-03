@@ -17,6 +17,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from prepare_portable_runtime import bundled_python, prepare_runtime, seal_runtime
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCKFILE = ROOT / "uv.lock"
@@ -144,6 +146,14 @@ def archive_runtime(source: Path, output: Path, platform_id: str) -> None:
         write_zip_tree(source, output)
 
 
+def extract_runtime(archive: Path, destination: Path, platform_id: str) -> None:
+    if platform_id.startswith("macos-"):
+        subprocess.run(["ditto", "-x", "-k", str(archive), str(destination)], check=True)
+    else:
+        with zipfile.ZipFile(archive) as payload:
+            payload.extractall(destination)
+
+
 def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict[str, object]:
     if VERSION_PATTERN.fullmatch(version) is None:
         raise ValueError("version must use MAJOR.MINOR.PATCH")
@@ -185,6 +195,13 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
             environment=environment,
         )
         python = runtime_python(venv, expected_platform)
+        base_prefix = Path(
+            run(
+                [str(python), "-c", "import sys; print(sys.base_prefix)"],
+                environment=environment,
+                capture=True,
+            )
+        )
         environment["UV_PROJECT_ENVIRONMENT"] = str(venv)
         run(
             [
@@ -197,6 +214,9 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
             ],
             environment=environment,
         )
+        python = runtime_python(venv, expected_platform)
+        shutil.copytree(base_prefix, venv / "base-python", symlinks=True)
+        prepare_runtime(venv, expected_platform)
         run(
             [
                 str(python),
@@ -246,6 +266,7 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
         relocated_parent.mkdir()
         relocated = relocated_parent / "runtime"
         runtime.rename(relocated)
+        prepare_runtime(relocated / "venv", expected_platform)
         relocated_python = runtime_python(relocated / "venv", expected_platform)
         run(
             [
@@ -258,7 +279,30 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
             ],
             environment=environment,
         )
+        seal_runtime(relocated / "venv")
         archive_runtime(relocated, output.resolve(), expected_platform)
+
+    # The original build directory no longer exists. Extract the archive into a
+    # fresh directory and prove that no interpreter path on the runner is needed.
+    with tempfile.TemporaryDirectory(prefix="areaday-runtime-proof-") as proof_temporary:
+        proof_root = Path(proof_temporary)
+        extract_runtime(output.resolve(), proof_root, expected_platform)
+        proof_runtime = proof_root / "runtime"
+        prepare_runtime(proof_runtime / "venv", expected_platform)
+        proof_python = runtime_python(proof_runtime / "venv", expected_platform)
+        proof_environment = os.environ.copy()
+        proof_environment["TOKENIZERS_PARALLELISM"] = "false"
+        run(
+            [
+                str(proof_python),
+                str(SETUP_SCRIPT),
+                "--venv-dir",
+                str(proof_runtime / "venv"),
+                "--model-dir",
+                str(proof_runtime / "models" / "sentence-transformers"),
+            ],
+            environment=proof_environment,
+        )
 
     return {
         "status": "runtime_built",
