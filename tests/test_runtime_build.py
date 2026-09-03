@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +19,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from build_runtime import build_runtime, current_platform_id  # noqa: E402
+from onnx_embeddings import mean_pool_and_normalize  # noqa: E402
+from setup_dependencies import runtime_environment  # noqa: E402
 from verify_nlp_runtime import ensure_model_files  # noqa: E402
 from prepare_portable_runtime import SEALED_HOME, prepare_runtime, seal_runtime  # noqa: E402
 
@@ -71,6 +76,58 @@ class RuntimeBuildContractTests(unittest.TestCase):
         self.assertIsNotNone(dependencies_match)
         dependencies = set(re.findall(r'"([^\"]+==[^\"]+)"', dependencies_match.group(1)))
         self.assertEqual(dependencies, requirements)
+
+    def test_onnx_runtime_replaces_pytorch_dependency_stack(self) -> None:
+        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+        for required in ("numpy==2.5.2", "onnxruntime==1.29.0", "tokenizers==0.23.2"):
+            self.assertIn(required, requirements)
+        for removed in ("torch", "sentence-transformers", "transformers"):
+            self.assertNotRegex(lock, rf'(?m)^name = "{re.escape(removed)}"$', msg=removed)
+        self.assertIn('name = "onnxruntime"', lock)
+        self.assertIn('macosx_14_0_arm64.whl', lock)
+        self.assertIn('win_amd64.whl', lock)
+        self.assertRegex(lock, r"tokenizers-0\.23\.2[^\n]+macosx_11_0_arm64\.whl")
+        self.assertRegex(lock, r"tokenizers-0\.23\.2[^\n]+win_amd64\.whl")
+
+        manifest = json.loads(
+            (ROOT / "references" / "embedding-model-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(manifest["backend"], "onnxruntime")
+        self.assertEqual(manifest["model_file"], "onnx/model.onnx")
+        self.assertEqual(manifest["tokenizer_file"], "tokenizer.json")
+        self.assertEqual(manifest["embedding_dimension"], 384)
+        self.assertEqual(manifest["max_sequence_length"], 256)
+        self.assertEqual(set(manifest["files"]), {"onnx/model.onnx", "tokenizer.json"})
+
+        shipped_sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (ROOT / "scripts").glob("*.py")
+        )
+        self.assertNotIn("from sentence_transformers", shipped_sources)
+        self.assertNotIn("import torch", shipped_sources)
+
+    def test_onnx_pooling_matches_sentence_transformers_contract(self) -> None:
+        tokens = np.asarray(
+            [
+                [[1.0, 0.0], [0.0, 1.0], [100.0, 100.0]],
+                [[3.0, 4.0], [9.0, 9.0], [9.0, 9.0]],
+            ],
+            dtype=np.float32,
+        )
+        mask = np.asarray([[1, 1, 0], [1, 0, 0]], dtype=np.int64)
+        vectors = mean_pool_and_normalize(tokens, mask)
+        self.assertEqual(vectors.dtype, np.float32)
+        np.testing.assert_allclose(vectors[0], [2**-0.5, 2**-0.5], atol=1e-6)
+        np.testing.assert_allclose(vectors[1], [0.6, 0.8], atol=1e-6)
+        np.testing.assert_allclose(np.linalg.norm(vectors, axis=1), [1.0, 1.0])
+
+    def test_runtime_environment_disables_onnx_telemetry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            environment = runtime_environment(Path(temporary))
+        self.assertEqual(environment["ORT_DISABLE_TELEMETRY"], "1")
 
     def test_frozen_runtime_inputs_and_two_runner_workflow_exist(self) -> None:
         self.assertTrue((ROOT / "uv.lock").is_file())

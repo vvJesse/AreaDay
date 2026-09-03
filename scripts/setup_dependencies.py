@@ -41,6 +41,7 @@ def venv_python(venv_dir: Path, platform: str = sys.platform) -> Path:
 def runtime_environment(model_dir: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment.setdefault("TOKENIZERS_PARALLELISM", "false")
+    environment["ORT_DISABLE_TELEMETRY"] = "1"
     environment.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
     environment.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
     environment.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
@@ -409,7 +410,7 @@ def check(venv_dir: Path, model_dir: Path) -> bool:
             print(f"Python {version[0]}.{version[1]} is too old; Python 3.10+ is required.")
             return False
         verify(venv_dir, model_dir, download_models=False)
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, RuntimeError, subprocess.CalledProcessError):
         print("The local NLP runtime is incomplete or failed its inference check.")
         return False
     print("Python packages: verified")

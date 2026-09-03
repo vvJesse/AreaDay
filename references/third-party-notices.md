@@ -1,6 +1,15 @@
 # Third-party notices
 
-AreaDay uses Py-FSRS (`fsrs`) for local spaced-repetition scheduling.
+AreaDay uses these third-party components locally:
+
+- ONNX Runtime (MIT) for embedding-model inference.
+- Hugging Face Tokenizers (Apache-2.0) for local text tokenization.
+- sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0) as the pinned embedding model.
+- Py-FSRS (`fsrs`, MIT) for local spaced-repetition scheduling.
+
+The pinned model revision and integrity hashes are recorded in `embedding-model-manifest.json`.
+
+## Py-FSRS license
 
 MIT License
 

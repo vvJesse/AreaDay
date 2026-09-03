@@ -30,6 +30,7 @@ jobs:
       AREADAY_VERSION: ${{ inputs.version }}
       AREADAY_PLATFORM: ${{ matrix.platform }}
       TOKENIZERS_PARALLELISM: "false"
+      ORT_DISABLE_TELEMETRY: "1"
 
     steps:
       - name: Check out source

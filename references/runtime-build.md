@@ -18,7 +18,8 @@ there is concrete customer demand, without delaying the supported releases.
 The workflow in `.github/workflows/build-runtimes.yml` builds both targets in
 parallel. Each runner creates a relocatable Python 3.12 environment, installs
 the frozen dependencies, embeds the Python interpreter itself, and downloads
-the pinned NLP models. The build directory is then deleted; the workflow
+the pinned unquantized ONNX embedding model and tokenizer. ONNX Runtime
+telemetry is disabled. The build directory is then deleted; the workflow
 extracts the new Runtime ZIP into an unrelated directory and runs a real
 offline inference check. It then puts that verified runtime inside the matching
 customer ZIP and tests the customer ZIP through the installer's `runtime-only`

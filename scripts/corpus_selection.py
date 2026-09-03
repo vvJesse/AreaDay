@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import re
-from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
 
-
-DEFAULT_MODEL_ROOT = Path.home() / ".researchramp" / "models" / "sentence-transformers"
-MODEL_DIRECTORY_GLOB = "sentence-transformers--all-MiniLM-L6-v2--*"
+from onnx_embeddings import embed_texts
 
 
 def normalize_title(title: str | None) -> str:
@@ -39,33 +35,6 @@ def title_token_jaccard(first: str | None, second: str | None) -> float:
     if not first_tokens or not second_tokens:
         return 0.0
     return len(first_tokens & second_tokens) / len(first_tokens | second_tokens)
-
-
-def _model_path() -> Path:
-    configured = os.environ.get("RESEARCHRAMP_MODEL_DIR")
-    root = Path(configured).expanduser() if configured else DEFAULT_MODEL_ROOT
-    matches = sorted(root.glob(MODEL_DIRECTORY_GLOB))
-    if not matches:
-        raise FileNotFoundError(
-            f"The verified all-MiniLM-L6-v2 model was not found under {root}. "
-            "Run the Skill installer first."
-        )
-    return matches[-1]
-
-
-def embed_texts(texts: list[str]) -> np.ndarray:
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer(str(_model_path()), local_files_only=True)
-    return np.asarray(
-        model.encode(
-            texts,
-            batch_size=32,
-            show_progress_bar=False,
-            normalize_embeddings=True,
-        ),
-        dtype=np.float32,
-    )
 
 
 def profile_anchors(profile: dict[str, Any] | None) -> list[str]:
