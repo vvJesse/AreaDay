@@ -30,7 +30,7 @@ path.
 1. Commit and push the runtime files and workflow to GitHub.
 2. Open the repository's **Actions** page.
 3. Select **Build AreaDay runtimes**.
-4. Select **Run workflow**, confirm version `1.0.3`, and start it.
+4. Select **Run workflow**, confirm version `1.0.4`, and start it.
 5. Wait for both jobs to become green.
 6. Download the two artifacts from the completed workflow run.
 
