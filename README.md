@@ -22,3 +22,22 @@ Supported release platforms:
 
 Intel Macs are not currently supported.
 
+## Safety & Privacy
+
+- Papers, PDFs, extracted text, notes, profiles, and vocabulary data are stored
+  on the user's computer. AreaDay does not upload the original paper text or
+  local file paths to its servers.
+- To find papers, AreaDay sends search requests and related metadata to the
+  enabled providers (OpenAlex and, when selected, arXiv). Those providers'
+  terms and privacy policies apply to those requests.
+- The licensed vocabulary service receives only the isolated-word test results
+  and statistical features needed to build the personal vocabulary model. It
+  does not receive papers, PDFs, extracted text, source URLs, or local paths.
+- License activation sends the activation key, device identifier, platform, and
+  version to the AreaDay activation service so it can verify the license and
+  device limit. The installed license is stored locally after activation.
+- OpenAlex API keys, activation keys, and local license files are credentials.
+  Keep them private and do not commit or paste them into public issues,
+  prompts, or repositories. AreaDay does not need access to your other files.
+- AreaDay is a research and vocabulary aid. Review generated results before
+  relying on them in research or other professional work.
