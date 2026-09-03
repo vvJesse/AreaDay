@@ -1,12 +1,13 @@
 param(
-    [switch]$Reconfigure
+    [switch]$Reconfigure,
+    [switch]$Anonymous
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SkillDir = Split-Path -Parent $ScriptDir
 $HelpPath = Join-Path $SkillDir "assets\openalex-help.html"
-$ConfigDir = Join-Path $HOME ".researchramp"
+$ConfigDir = if ($env:RESEARCHRAMP_CONFIG_DIR) { $env:RESEARCHRAMP_CONFIG_DIR } else { Join-Path $HOME ".researchramp" }
 $ConfigPath = Join-Path $ConfigDir "credentials.ini"
 $Utf8 = [Text.UTF8Encoding]::new($false)
 
@@ -40,6 +41,12 @@ function Save-Configuration {
     $Content = "[openalex]`napi_key = $ApiKey`n"
     [IO.File]::WriteAllText($ConfigPath, $Content, $Utf8)
     Restrict-Configuration
+}
+
+if ($Anonymous) {
+    Save-Configuration "anonymous"
+    Write-Host "OpenAlex anonymous access selected at $ConfigPath"
+    exit 0
 }
 
 function Read-OpenAlexKey {

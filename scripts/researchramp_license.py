@@ -155,22 +155,42 @@ def _macos_system_uuid() -> str:
 
 
 def _windows_system_uuid() -> str:
-    output = _command_output(
+    commands = (
         [
             "powershell.exe",
             "-NoProfile",
             "-NonInteractive",
             "-Command",
             "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
-        ]
+        ],
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "(Get-ItemProperty -LiteralPath "
+                "'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' "
+                "-Name MachineGuid -ErrorAction Stop).MachineGuid"
+            ),
+        ],
     )
-    values = [line.strip() for line in output.splitlines() if line.strip()]
-    if len(values) != 1:
-        raise LicenseError(
-            "device_identity_unavailable",
-            "Windows did not provide one SMBIOS system UUID.",
-        )
-    return values[0]
+    for command in commands:
+        try:
+            output = _command_output(command)
+        except LicenseError:
+            continue
+        values = [line.strip() for line in output.splitlines() if line.strip()]
+        if len(values) != 1:
+            continue
+        try:
+            return str(uuid.UUID(values[0].strip().strip("{}")))
+        except ValueError:
+            continue
+    raise LicenseError(
+        "device_identity_unavailable",
+        "Windows did not provide a usable machine UUID.",
+    )
 
 
 def current_device_id(platform_name: str | None = None) -> str:

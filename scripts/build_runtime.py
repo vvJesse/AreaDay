@@ -179,8 +179,11 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
         runtime = work / "runtime"
         venv = runtime / "venv"
         models = runtime / "models" / "sentence-transformers"
-        environment.setdefault("UV_PYTHON_INSTALL_DIR", str(work / "managed-python"))
-        environment.setdefault("UV_CACHE_DIR", str(work / "uv-cache"))
+        # Never inherit a runner-level uv Python directory. The post-build proof
+        # must run after the exact interpreter targeted by uv's original venv
+        # trampolines has been deleted with this temporary directory.
+        environment["UV_PYTHON_INSTALL_DIR"] = str(work / "managed-python")
+        environment["UV_CACHE_DIR"] = str(work / "uv-cache")
 
         run([uv, "python", "install", "--managed-python", PYTHON_REQUEST], environment=environment)
         run(

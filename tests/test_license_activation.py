@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -20,6 +21,7 @@ if str(SCRIPTS) not in sys.path:
 from researchramp_license import (  # noqa: E402
     LicenseError,
     LicenseVerifier,
+    _windows_system_uuid,
     derive_device_id,
 )
 
@@ -106,6 +108,15 @@ class LicenseActivationTests(unittest.TestCase):
         self.assertNotEqual(other, self.device_id)
         self.assertNotEqual(windows, self.device_id)
         self.assertRegex(self.device_id, r"^AD1-MAC-[A-Z2-7]{52}$")
+
+    def test_windows_device_identity_falls_back_when_cim_is_restricted(self) -> None:
+        machine_guid = "01234567-89ab-cdef-0123-456789abcdef"
+        with patch(
+            "researchramp_license._command_output",
+            side_effect=["", machine_guid],
+        ) as command_output:
+            self.assertEqual(_windows_system_uuid(), machine_guid)
+        self.assertEqual(command_output.call_count, 2)
 
     def test_valid_perpetual_license_verifies_for_current_device(self) -> None:
         result = self.verifier.verify_bytes(

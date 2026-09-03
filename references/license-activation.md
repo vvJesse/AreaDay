@@ -4,6 +4,9 @@ description: "Show the device code, activate or inspect an AreaDay license, or p
 
 # AreaDay license activation
 
+Python commands below use `.venv/bin/python` on macOS. On Windows, replace it
+with `.\.venv\Scripts\python.exe` and keep the remaining arguments unchanged.
+
 This reference applies to the production AreaDay license environment. The
 development Worker, database, keys, licenses, and device slots are isolated and
 must never be treated as production records.

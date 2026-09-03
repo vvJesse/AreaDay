@@ -14,8 +14,8 @@ $SetupScript = Join-Path $ScriptDir "setup_dependencies.py"
 $PortableRuntimeScript = Join-Path $ScriptDir "prepare_portable_runtime.py"
 $MigrationScript = Join-Path $ScriptDir "migrate_areaday_data.py"
 $OpenAlexSetupScript = Join-Path $ScriptDir "configure_openalex.ps1"
-$OpenAlexConfig = Join-Path $HOME ".researchramp\credentials.ini"
-$OpenAlexSetupProcess = $null
+$OpenAlexConfigDir = if ($env:RESEARCHRAMP_CONFIG_DIR) { $env:RESEARCHRAMP_CONFIG_DIR } else { Join-Path $HOME ".researchramp" }
+$OpenAlexConfig = Join-Path $OpenAlexConfigDir "credentials.ini"
 
 function Get-BundledRuntime {
     $RuntimePackDir = Join-Path $SkillDir "runtime-packs"
@@ -32,15 +32,76 @@ function Get-BundledRuntime {
     return $Matches[0]
 }
 
+function Assert-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
+    $ReleasePath = Join-Path $SkillDir "release.json"
+    if (-not (Test-Path -LiteralPath $ReleasePath -PathType Leaf)) {
+        throw "The bundled runtime release metadata is missing: $ReleasePath"
+    }
+    $Release = Get-Content -LiteralPath $ReleasePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Release.product -ne "areaday" -or
+        $Release.platform -ne "windows-x64" -or
+        $Release.runtime_artifact -ne $RuntimeArchive.Name -or
+        $Release.runtime_sha256 -notmatch "^[0-9a-fA-F]{64}$") {
+        throw "The bundled runtime release metadata does not match windows-x64."
+    }
+    $ActualHash = (Get-FileHash -LiteralPath $RuntimeArchive.FullName -Algorithm SHA256).Hash
+    if ($ActualHash -ne $Release.runtime_sha256) {
+        throw "The bundled runtime failed its SHA-256 integrity check."
+    }
+}
+
+function Expand-BundledRuntime(
+    [System.IO.FileInfo]$RuntimeArchive,
+    [string]$Destination
+) {
+    $Tar = Get-Command tar.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($null -ne $Tar) {
+        & $Tar.Source -xf $RuntimeArchive.FullName -C $Destination
+        if ($LASTEXITCODE -ne 0) {
+            throw "tar.exe could not extract the bundled AreaDay runtime."
+        }
+        return
+    }
+    Write-Warning "tar.exe is unavailable; falling back to the slower Expand-Archive command."
+    Expand-Archive -LiteralPath $RuntimeArchive.FullName -DestinationPath $Destination
+}
+
+function Assert-WindowsRuntimePath([System.IO.FileInfo]$RuntimeArchive) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $Archive = [IO.Compression.ZipFile]::OpenRead($RuntimeArchive.FullName)
+    try {
+        $VenvPrefix = "runtime/venv/"
+        $LongestPath = 0
+        foreach ($Entry in $Archive.Entries) {
+            if (-not $Entry.FullName.StartsWith($VenvPrefix, [StringComparison]::Ordinal)) {
+                continue
+            }
+            $Relative = $Entry.FullName.Substring($VenvPrefix.Length).Replace('/', '\')
+            $Length = (Join-Path $VenvDir $Relative).Length
+            if ($Length -gt $LongestPath) {
+                $LongestPath = $Length
+            }
+        }
+    } finally {
+        $Archive.Dispose()
+    }
+    if ($LongestPath -ge 260) {
+        throw "The AreaDay runtime path would exceed the Windows 260-character compatibility limit. Choose a shorter Skill or RESEARCHRAMP_VENV_DIR path."
+    }
+}
+
 function Install-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
+    Assert-BundledRuntime $RuntimeArchive
+    Assert-WindowsRuntimePath $RuntimeArchive
     New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
-    $StageDir = Join-Path $RuntimeDir ("areaday-runtime-stage-" + [Guid]::NewGuid().ToString("N"))
+    $StageDir = Join-Path ([IO.Path]::GetTempPath()) ("areaday-runtime-stage-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $StageDir | Out-Null
     $BackupVenv = "$VenvDir.areaday-backup-$PID"
     $HadPreviousVenv = $false
+    $VenvReplacementStarted = $false
     try {
         Write-Host "Installing the bundled AreaDay runtime for windows-x64..."
-        Expand-Archive -LiteralPath $RuntimeArchive.FullName -DestinationPath $StageDir
+        Expand-BundledRuntime $RuntimeArchive $StageDir
         $StagedRoot = Join-Path $StageDir "runtime"
         $StagedVenv = Join-Path $StagedRoot "venv"
         $StagedPython = Join-Path $StagedVenv "Scripts\python.exe"
@@ -76,6 +137,7 @@ function Install-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
             Move-Item -LiteralPath $VenvDir -Destination $BackupVenv
             $HadPreviousVenv = $true
         }
+        $VenvReplacementStarted = $true
         Move-Item -LiteralPath $StagedVenv -Destination $VenvDir
         $InstalledBasePython = Join-Path $VenvDir "base-python\python.exe"
         & $InstalledBasePython $PortableRuntimeScript --venv-dir $VenvDir
@@ -88,11 +150,14 @@ function Install-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
             throw "The bundled runtime failed verification after installation."
         }
         if ($HadPreviousVenv) {
-            Remove-Item -LiteralPath $BackupVenv -Recurse -Force
+            & $VenvPython -c "import os,shutil,sys; p=os.path.abspath(sys.argv[1]); shutil.rmtree(chr(92)*2+'?'+chr(92)+p)" $BackupVenv
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "AreaDay was installed, but its previous runtime backup could not be removed: $BackupVenv"
+            }
             $HadPreviousVenv = $false
         }
     } catch {
-        if (Test-Path -LiteralPath $VenvDir) {
+        if ($VenvReplacementStarted -and (Test-Path -LiteralPath $VenvDir)) {
             Remove-Item -LiteralPath $VenvDir -Recurse -Force
         }
         if ($HadPreviousVenv -and (Test-Path -LiteralPath $BackupVenv)) {
@@ -102,7 +167,11 @@ function Install-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
         throw
     } finally {
         if (Test-Path -LiteralPath $StageDir) {
-            Remove-Item -LiteralPath $StageDir -Recurse -Force
+            try {
+                Remove-Item -LiteralPath $StageDir -Recurse -Force
+            } catch {
+                Write-Warning "The temporary AreaDay runtime directory could not be removed: $StageDir"
+            }
         }
     }
 }
@@ -114,14 +183,11 @@ function Complete-Installation {
         throw "AreaDay data migration did not complete."
     }
     if ($Mode -eq "install") {
-        if ($null -ne $OpenAlexSetupProcess) {
-            $OpenAlexSetupProcess.WaitForExit()
-            if ($OpenAlexSetupProcess.ExitCode -ne 0) {
-                throw "OpenAlex setup did not complete."
-            }
-        }
         if (-not (Test-Path -LiteralPath $OpenAlexConfig -PathType Leaf)) {
-            throw "OpenAlex setup did not create $OpenAlexConfig"
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $OpenAlexSetupScript -Anonymous
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OpenAlexConfig -PathType Leaf)) {
+                throw "OpenAlex anonymous setup did not complete."
+            }
         }
     }
 }
@@ -141,13 +207,6 @@ if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -
 }
 
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
-if ($Mode -eq "install") {
-    $OpenAlexSetupProcess = Start-Process powershell.exe -PassThru -ArgumentList @(
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", ('"' + $OpenAlexSetupScript + '"')
-    )
-}
 $BundledRuntime = Get-BundledRuntime
 if ($null -ne $BundledRuntime) {
     Install-BundledRuntime $BundledRuntime
@@ -216,8 +275,5 @@ if ($SetupExitCode -eq 0) {
         Write-Warning "Installation succeeded, but the disposable uv cache could not be cleaned."
     }
     exit 0
-}
-if ($null -ne $OpenAlexSetupProcess -and -not $OpenAlexSetupProcess.HasExited) {
-    $OpenAlexSetupProcess.Kill()
 }
 exit $SetupExitCode

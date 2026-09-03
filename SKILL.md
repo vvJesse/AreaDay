@@ -34,6 +34,10 @@ protocol. Use [customer-installation.md](references/customer-installation.md)
 only as supplementary customer-delivery context. Never describe the ZIP as a
 desktop App or ask the user to perform terminal installation steps for you.
 
+Commands in this file use `.venv/bin/python` for macOS. On Windows, always use
+`.\.venv\Scripts\python.exe` in its place and keep every following argument
+unchanged. Never try to execute the macOS `.venv/bin/python` path on Windows.
+
 When a business entrypoint returns `license_required`, report its exact `code`
 and `error`, then offer the matching device-code, activation, status, or recovery
 installation operation. Do not retry the business operation through a helper
