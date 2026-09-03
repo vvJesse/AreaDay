@@ -11,6 +11,7 @@ $RuntimeDir = if ($env:RESEARCHRAMP_RUNTIME_DIR) { $env:RESEARCHRAMP_RUNTIME_DIR
 $VenvDir = if ($env:RESEARCHRAMP_VENV_DIR) { $env:RESEARCHRAMP_VENV_DIR } else { Join-Path $SkillDir ".venv" }
 $ModelDir = if ($env:RESEARCHRAMP_MODEL_DIR) { $env:RESEARCHRAMP_MODEL_DIR } else { Join-Path $HOME ".researchramp\models\sentence-transformers" }
 $SetupScript = Join-Path $ScriptDir "setup_dependencies.py"
+$PortableRuntimeScript = Join-Path $ScriptDir "prepare_portable_runtime.py"
 $MigrationScript = Join-Path $ScriptDir "migrate_areaday_data.py"
 $OpenAlexSetupScript = Join-Path $ScriptDir "configure_openalex.ps1"
 $OpenAlexConfig = Join-Path $HOME ".researchramp\credentials.ini"
@@ -43,12 +44,17 @@ function Install-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
         $StagedRoot = Join-Path $StageDir "runtime"
         $StagedVenv = Join-Path $StagedRoot "venv"
         $StagedPython = Join-Path $StagedVenv "Scripts\python.exe"
+        $StagedBasePython = Join-Path $StagedVenv "base-python\python.exe"
         $StagedModel = Join-Path $StagedRoot "models\sentence-transformers"
         $StagedManifest = Join-Path $StagedRoot "runtime.json"
-        if (-not (Test-Path -LiteralPath $StagedPython -PathType Leaf) -or
+        if (-not (Test-Path -LiteralPath $StagedBasePython -PathType Leaf) -or
             -not (Test-Path -LiteralPath $StagedModel -PathType Container) -or
             -not (Test-Path -LiteralPath $StagedManifest -PathType Leaf)) {
             throw "The bundled runtime is incomplete."
+        }
+        & $StagedBasePython $PortableRuntimeScript --venv-dir $StagedVenv
+        if ($LASTEXITCODE -ne 0) {
+            throw "The bundled Python could not prepare the portable runtime."
         }
         $Manifest = Get-Content -LiteralPath $StagedManifest -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($Manifest.schema_version -ne 1 -or $Manifest.product -ne "areaday" -or $Manifest.platform -ne "windows-x64") {
@@ -71,6 +77,11 @@ function Install-BundledRuntime([System.IO.FileInfo]$RuntimeArchive) {
             $HadPreviousVenv = $true
         }
         Move-Item -LiteralPath $StagedVenv -Destination $VenvDir
+        $InstalledBasePython = Join-Path $VenvDir "base-python\python.exe"
+        & $InstalledBasePython $PortableRuntimeScript --venv-dir $VenvDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "The installed Python could not prepare the portable runtime."
+        }
         $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
         & $VenvPython $SetupScript --venv-dir $VenvDir --model-dir $ModelDir
         if ($LASTEXITCODE -ne 0) {

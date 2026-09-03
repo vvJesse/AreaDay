@@ -17,10 +17,12 @@ there is concrete customer demand, without delaying the supported releases.
 
 The workflow in `.github/workflows/build-runtimes.yml` builds both targets in
 parallel. Each runner creates a relocatable Python 3.12 environment, installs
-the frozen dependencies, downloads the pinned NLP models, moves the runtime to
-prove that it is relocatable, and runs a real offline inference check. It then
-puts that runtime inside the matching customer ZIP and tests the customer ZIP
-through the installer's `runtime-only` path.
+the frozen dependencies, embeds the Python interpreter itself, and downloads
+the pinned NLP models. The build directory is then deleted; the workflow
+extracts the new Runtime ZIP into an unrelated directory and runs a real
+offline inference check. It then puts that verified runtime inside the matching
+customer ZIP and tests the customer ZIP through the installer's `runtime-only`
+path.
 
 ## Run a build
 

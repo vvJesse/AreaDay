@@ -17,6 +17,9 @@ class PlatformInstallerContractTests(unittest.TestCase):
         self.assertIn('AreaDay-runtime-$PLATFORM_ID-*.zip', script)
         self.assertIn("ditto -x -k", script)
         self.assertIn("failed verification after installation", script)
+        self.assertIn("base-python/bin/python3.12", script)
+        self.assertIn("com.apple.quarantine", script)
+        self.assertIn("prepare_portable_runtime.py", script)
 
     def test_windows_x64_installer_uses_windows_runtime_and_data_migration(self) -> None:
         script = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
@@ -28,6 +31,8 @@ class PlatformInstallerContractTests(unittest.TestCase):
         self.assertIn("Expand-Archive", script)
         self.assertIn('"runtime-only"', script)
         self.assertIn("$BackupVenv", script)
+        self.assertIn("base-python\\python.exe", script)
+        self.assertIn("prepare_portable_runtime.py", script)
         self.assertNotIn("/usr/", script)
 
     def test_windows_openalex_setup_hides_key_input_and_writes_ascii_configuration(self) -> None:

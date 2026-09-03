@@ -8,6 +8,7 @@ RUNTIME_DIR=${RESEARCHRAMP_RUNTIME_DIR:-"$SKILL_DIR/.runtime"}
 VENV_DIR=${RESEARCHRAMP_VENV_DIR:-"$SKILL_DIR/.venv"}
 MODEL_DIR=${RESEARCHRAMP_MODEL_DIR:-"$HOME/.researchramp/models/sentence-transformers"}
 SETUP_SCRIPT="$SCRIPT_DIR/setup_dependencies.py"
+PORTABLE_RUNTIME_SCRIPT="$SCRIPT_DIR/prepare_portable_runtime.py"
 MIGRATION_SCRIPT="$SCRIPT_DIR/migrate_areaday_data.py"
 OPENALEX_SETUP_SCRIPT="$SCRIPT_DIR/configure_openalex.sh"
 OPENALEX_CONFIG="$HOME/.researchramp/credentials.ini"
@@ -102,10 +103,15 @@ install_bundled_runtime() {
   staged_model="$staged_root/models/sentence-transformers"
   staged_python="$staged_venv/bin/python"
   staged_manifest="$staged_root/runtime.json"
-  if [ ! -x "$staged_python" ] || [ ! -f "$staged_manifest" ] || [ ! -d "$staged_model" ]; then
+  staged_base_python="$staged_venv/base-python/bin/python3.12"
+  if [ ! -x "$staged_base_python" ] || [ ! -f "$staged_manifest" ] || [ ! -d "$staged_model" ]; then
     echo "The bundled runtime is incomplete." >&2
     return 1
   fi
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -dr com.apple.quarantine "$staged_root" 2>/dev/null || true
+  fi
+  "$staged_base_python" "$PORTABLE_RUNTIME_SCRIPT" --venv-dir "$staged_venv"
   "$staged_python" -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); assert p.get("schema_version")==1 and p.get("product")=="areaday" and p.get("platform")==sys.argv[2]' "$staged_manifest" "$PLATFORM_ID"
   "$staged_python" "$SETUP_SCRIPT" --venv-dir "$staged_venv" --model-dir "$staged_model"
 
@@ -122,6 +128,7 @@ install_bundled_runtime() {
     had_previous_venv=1
   fi
   if mv "$staged_venv" "$VENV_DIR" && \
+    "$VENV_DIR/base-python/bin/python3.12" "$PORTABLE_RUNTIME_SCRIPT" --venv-dir "$VENV_DIR" && \
     "$VENV_DIR/bin/python" "$SETUP_SCRIPT" --venv-dir "$VENV_DIR" --model-dir "$MODEL_DIR"; then
     if [ "$had_previous_venv" -eq 1 ]; then
       rm -rf -- "$backup_venv"
