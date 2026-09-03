@@ -36,13 +36,17 @@ path.
 Each GitHub artifact contains:
 
 - `AreaDay-<platform>-v<version>.zip`: the file to give the customer.
-- `AreaDay-runtime-<platform>-v<version>.zip`: the standalone runtime retained
-  for diagnosis or rebuilding a delivery bundle.
 - `SHA256SUMS-<platform>.txt`: hashes for checking that the downloads are intact.
 
-Give each customer only the AreaDay ZIP matching their computer, together with
-their separately issued `AD1-...` activation key. Do not ask customers to
-download the standalone runtime or assemble folders themselves.
+The standalone Runtime remains inside the customer ZIP and is not uploaded a
+second time. This keeps the downloadable Artifact close to half the former
+size. Give each customer only the AreaDay ZIP matching their computer,
+together with their separately issued `AD1-...` activation key.
+
+To publish without downloading these large files locally, run **Publish
+verified AreaDay release** from `main`, enter the successful Runtime workflow
+run ID and version, and let GitHub transfer the verified customer ZIPs directly
+to the Release.
 
 ## When to rebuild
 

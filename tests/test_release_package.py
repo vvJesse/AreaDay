@@ -54,6 +54,7 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertFalse(any("cloudflare/" in name for name in names))
             self.assertFalse(any("tests/" in name for name in names))
             self.assertNotIn("areaday/scripts/build_release.py", names)
+            self.assertNotIn("areaday/scripts/prepare_release_assets.py", names)
             self.assertFalse(any("__pycache__" in name for name in names))
             self.assertFalse(any(name.endswith(".rrlicense") for name in names))
             self.assertNotIn("BEGIN PRIVATE KEY", text_payload)

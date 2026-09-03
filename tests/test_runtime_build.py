@@ -83,6 +83,16 @@ class RuntimeBuildContractTests(unittest.TestCase):
             self.assertIn(f"platform: {platform}", workflow)
         self.assertNotIn("platform: macos-x64", workflow)
         self.assertIn("--runtime-only", workflow)
+        self.assertNotIn(
+            "dist/AreaDay-runtime-${{ matrix.platform }}-v${{ inputs.version }}.zip\n",
+            workflow,
+        )
+        publisher = (ROOT / ".github" / "workflows" / "publish-release.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("actions/download-artifact", publisher)
+        self.assertIn("prepare_release_assets.py", publisher)
+        self.assertIn("gh release create", publisher)
         builder = (ROOT / "scripts" / "build_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn("UV_TORCH_BACKEND", workflow)
         self.assertNotIn("UV_TORCH_BACKEND", builder)

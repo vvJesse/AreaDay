@@ -33,6 +33,7 @@ ALLOWED_SUFFIXES = {
 EXCLUDED_NAMES = {
     ".DS_Store",
     "build_release.py",
+    "prepare_release_assets.py",
     "session.json",
 }
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
