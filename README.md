@@ -26,7 +26,8 @@ Intel Macs are not currently supported.
 
 - Papers, PDFs, extracted text, notes, profiles, and vocabulary data are stored
   on the user's computer. AreaDay does not upload the original paper text or
-  local file paths to its servers.
+  local file paths to its servers. Text tokenization and embedding inference
+  also run locally, with ONNX Runtime telemetry explicitly disabled.
 - To find papers, AreaDay sends search requests and related metadata to the
   enabled providers (OpenAlex and, when selected, arXiv). Those providers'
   terms and privacy policies apply to those requests.

@@ -17,7 +17,7 @@ from prepare_release_assets import PLATFORMS, prepare  # noqa: E402
 
 
 class PublishReleaseTests(unittest.TestCase):
-    def _delivery(self, root: Path, platform: str, version: str = "1.0.3") -> Path:
+    def _delivery(self, root: Path, platform: str, version: str = "1.0.4") -> Path:
         artifact = root / platform / f"AreaDay-{platform}-v{version}.zip"
         artifact.parent.mkdir(parents=True)
         runtime = f"AreaDay-runtime-{platform}-v{version}.zip"
@@ -45,13 +45,13 @@ class PublishReleaseTests(unittest.TestCase):
             for platform in PLATFORMS:
                 self._delivery(incoming, platform)
             output = root / "release"
-            staged = prepare(incoming, output, "1.0.3")
+            staged = prepare(incoming, output, "1.0.4")
             self.assertEqual(len(staged), 3)
             self.assertEqual(
                 {path.name for path in staged},
                 {
-                    "AreaDay-windows-x64-v1.0.3.zip",
-                    "AreaDay-macos-arm64-v1.0.3.zip",
+                    "AreaDay-windows-x64-v1.0.4.zip",
+                    "AreaDay-macos-arm64-v1.0.4.zip",
                     "SHA256SUMS.txt",
                 },
             )
@@ -65,9 +65,8 @@ class PublishReleaseTests(unittest.TestCase):
             root = Path(temporary)
             self._delivery(root / "incoming", "macos-arm64")
             with self.assertRaisesRegex(RuntimeError, "windows-x64"):
-                prepare(root / "incoming", root / "release", "1.0.3")
+                prepare(root / "incoming", root / "release", "1.0.4")
 
 
 if __name__ == "__main__":
     unittest.main()
-

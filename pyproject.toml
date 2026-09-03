@@ -1,17 +1,19 @@
 [project]
 name = "areaday-runtime"
-version = "1.0.3"
+version = "1.0.4"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "arxiv==4.0.1",
   "cryptography==50.0.1",
   "fsrs==6.3.2",
+  "numpy==2.5.2",
+  "onnxruntime==1.29.0",
   "pypdf==6.16.2",
   "pymupdf==1.26.4",
   "requests==2.34.2",
-  "sentence-transformers==6.0.0",
   "spacy==3.8.16",
   "symspellpy==6.10.0",
+  "tokenizers==0.23.2",
   "wordfreq==3.1.1",
 ]
 

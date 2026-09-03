@@ -172,6 +172,7 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
     environment["UV_MANAGED_PYTHON"] = "1"
     environment["UV_NO_CONFIG"] = "1"
     environment.setdefault("TOKENIZERS_PARALLELISM", "false")
+    environment["ORT_DISABLE_TELEMETRY"] = "1"
 
     with tempfile.TemporaryDirectory(prefix="areaday-runtime-build-") as temporary:
         work = Path(temporary)
@@ -251,6 +252,8 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
             "model_manifest_sha256": sha256(MODEL_MANIFEST),
             "embedding_repository": model_manifest["repository"],
             "embedding_revision": model_manifest["revision"],
+            "embedding_backend": model_manifest["backend"],
+            "embedding_dimension": model_manifest["embedding_dimension"],
         }
         (runtime / "runtime.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -292,6 +295,7 @@ def build_runtime(output: Path, *, version: str, expected_platform: str) -> dict
         proof_python = runtime_python(proof_runtime / "venv", expected_platform)
         proof_environment = os.environ.copy()
         proof_environment["TOKENIZERS_PARALLELISM"] = "false"
+        proof_environment["ORT_DISABLE_TELEMETRY"] = "1"
         run(
             [
                 str(proof_python),

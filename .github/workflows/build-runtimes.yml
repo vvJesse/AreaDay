@@ -6,7 +6,7 @@ on:
       version:
         description: Release version (MAJOR.MINOR.PATCH)
         required: true
-        default: 1.0.3
+        default: 1.0.4
         type: string
 
 permissions:
@@ -30,6 +30,7 @@ jobs:
       AREADAY_VERSION: ${{ inputs.version }}
       AREADAY_PLATFORM: ${{ matrix.platform }}
       TOKENIZERS_PARALLELISM: "false"
+      ORT_DISABLE_TELEMETRY: "1"
 
     steps:
       - name: Check out source

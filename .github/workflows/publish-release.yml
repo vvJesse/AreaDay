@@ -6,7 +6,7 @@ on:
       version:
         description: Release version (MAJOR.MINOR.PATCH)
         required: true
-        default: 1.0.3
+        default: 1.0.4
         type: string
       run_id:
         description: Successful Build AreaDay runtimes run ID
@@ -70,4 +70,3 @@ jobs:
             --title "AreaDay $VERSION" \
             --notes "Send this Release URL to Codex or WorkBuddy and say: 安装一下。The agent will select the correct AreaDay ZIP automatically. Supported platforms: Windows x64 and Apple silicon Mac. Intel Macs are not currently supported. Do not install GitHub's Source code archives." \
             release-assets/*
-

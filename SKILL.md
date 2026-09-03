@@ -6,7 +6,7 @@ description: "Build a local research area and personal domain vocabulary, view o
 description_zh: "建立本地研究领域与个人词表，查看研究简报并进行复习。"
 description_en: "Build a local research area and personal vocabulary, read briefs, and review terminology."
 category: education
-version: 1.0.3
+version: 1.0.4
 author: AreaDay
 ---
 

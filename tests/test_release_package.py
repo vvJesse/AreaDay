@@ -19,8 +19,8 @@ from build_release import build_release  # noqa: E402
 class ReleasePackageTests(unittest.TestCase):
     def test_release_is_an_areaday_skill_zip_with_an_explicit_safe_allowlist(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "AreaDay-v1.0.3.zip"
-            manifest = build_release(ROOT, output, version="1.0.3")
+            output = Path(temporary) / "AreaDay-v1.0.4.zip"
+            manifest = build_release(ROOT, output, version="1.0.4")
 
             self.assertEqual(manifest["artifact"], output.name)
             self.assertRegex(manifest["sha256"], r"^[0-9a-f]{64}$")
@@ -37,7 +37,7 @@ class ReleasePackageTests(unittest.TestCase):
                 )
 
             self.assertIn("name: areaday", skill)
-            self.assertIn("version: 1.0.3", skill)
+            self.assertIn("version: 1.0.4", skill)
             self.assertIn("~/.codex/skills/areaday", install)
             self.assertIn("~/.workbuddy/skills/areaday", install)
             self.assertIn("Source code (zip)", install)
@@ -49,6 +49,10 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertIn("areaday/scripts/install.sh", names)
             self.assertIn("areaday/scripts/install.ps1", names)
             self.assertIn("areaday/scripts/researchramp_license.py", names)
+            self.assertIn("areaday/scripts/onnx_embeddings.py", names)
+            self.assertIn("onnxruntime==1.29.0", text_payload)
+            self.assertNotIn("sentence-transformers==6.0.0", text_payload)
+            self.assertNotIn("from sentence_transformers", text_payload)
             self.assertFalse(any(".secrets" in name for name in names))
             self.assertFalse(any("issued/" in name for name in names))
             self.assertFalse(any("cloudflare/" in name for name in names))
@@ -83,7 +87,7 @@ class ReleasePackageTests(unittest.TestCase):
     def test_platform_release_embeds_only_its_matching_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            runtime = root / "AreaDay-runtime-windows-x64-v1.0.3.zip"
+            runtime = root / "AreaDay-runtime-windows-x64-v1.0.4.zip"
             with zipfile.ZipFile(runtime, "w") as archive:
                 archive.writestr(
                     "runtime/runtime.json",
@@ -91,16 +95,16 @@ class ReleasePackageTests(unittest.TestCase):
                         {
                             "schema_version": 1,
                             "product": "areaday",
-                            "runtime_version": "1.0.3",
+                            "runtime_version": "1.0.4",
                             "platform": "windows-x64",
                         }
                     ),
                 )
-            output = root / "AreaDay-windows-x64-v1.0.3.zip"
+            output = root / "AreaDay-windows-x64-v1.0.4.zip"
             result = build_release(
                 ROOT,
                 output,
-                version="1.0.3",
+                version="1.0.4",
                 runtime_archive=runtime,
                 platform="windows-x64",
             )

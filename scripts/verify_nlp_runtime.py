@@ -8,12 +8,15 @@ import hashlib
 import http.client
 import importlib.metadata
 import json
-import math
 import os
 import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+import numpy as np
+
+from onnx_embeddings import OnnxSentenceEncoder
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -101,7 +104,7 @@ def ensure_model_files(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify spaCy and Sentence Transformers with real inference."
+        description="Verify spaCy and the local ONNX embedding model with real inference."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(
@@ -127,8 +130,8 @@ def main() -> int:
         raise SystemExit(f"Embedding model directory does not exist: {model_dir}")
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ["ORT_DISABLE_TELEMETRY"] = "1"
     import spacy
-    from sentence_transformers import SentenceTransformer
     from symspellpy import SymSpell, Verbosity
     from fsrs import Card, Rating, Scheduler
     import importlib.resources
@@ -186,37 +189,37 @@ def main() -> int:
                 f"expected {expected_hash}, got {actual_hash}"
             )
 
-    model = SentenceTransformer(
-        str(snapshot_path),
-        device="cpu",
-        local_files_only=True,
-        trust_remote_code=False,
-    )
+    model = OnnxSentenceEncoder(snapshot_path)
     vectors = model.encode(
         [
             "The literal statement is true.",
             "The statement creates a misleading impression.",
-        ],
-        normalize_embeddings=True,
-        show_progress_bar=False,
+        ]
     )
-    if len(vectors) != 2 or len(vectors[0]) < 100:
-        raise RuntimeError(f"Unexpected embedding shape: {getattr(vectors, 'shape', None)}")
-    if not all(math.isfinite(float(value)) for row in vectors for value in row):
+    expected_dimension = int(manifest["embedding_dimension"])
+    if vectors.dtype != np.float32 or vectors.shape != (2, expected_dimension):
+        raise RuntimeError(f"Unexpected embedding output: {vectors.dtype} {vectors.shape}")
+    if not np.isfinite(vectors).all():
         raise RuntimeError("Embedding inference returned a non-finite value")
+    if not np.allclose(np.linalg.norm(vectors, axis=1), 1.0, rtol=1e-4, atol=1e-5):
+        raise RuntimeError("Embedding inference returned a non-normalized vector")
 
     result = {
         "status": "ok",
         "python_packages": {
-            "sentence-transformers": importlib.metadata.version("sentence-transformers"),
+            "onnxruntime": importlib.metadata.version("onnxruntime"),
             "spacy": importlib.metadata.version("spacy"),
             "spacy-model": importlib.metadata.version(SPACY_MODEL),
             "symspellpy": importlib.metadata.version("symspellpy"),
+            "tokenizers": importlib.metadata.version("tokenizers"),
             "fsrs": importlib.metadata.version("fsrs"),
         },
         "embedding_model": embedding_model,
         "embedding_revision": revision,
-        "embedding_dimension": len(vectors[0]),
+        "embedding_backend": manifest["backend"],
+        "embedding_dimension": vectors.shape[1],
+        "embedding_norms": [round(float(value), 6) for value in np.linalg.norm(vectors, axis=1)],
+        "onnx_telemetry_disabled": os.environ.get("ORT_DISABLE_TELEMETRY") == "1",
         "spacy_model": SPACY_MODEL,
         "spacy_content_tokens": content_tokens,
         "symspell_segmentation": segmentation.corrected_string,
