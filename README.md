@@ -1,7 +1,31 @@
 # AreaDay
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 AreaDay is distributed as a self-contained Skill for Codex and WorkBuddy.
 This is a paid Skill, please ensure you have got a license of activation code from the author before you install it. 
+
+#### Note for WorkBuddy Users
+
+This Skill has been tested end-to-end on **WorkBuddy** using
+**DeepSeek-V4-Flash**. Other compatible models may also work.
+
+WorkBuddy's sandbox restricts certain system-level operations required by the
+complete workflow. For example, `schtasks` may be blocked, preventing scheduled
+tasks from completing.
+
+We have not yet found a sufficiently reliable and user-friendly solution that
+preserves all sandbox restrictions. For affected steps, **temporarily disabling
+the WorkBuddy sandbox is currently the most reliable workaround**.
+
+Disabling the sandbox reduces WorkBuddy's security isolation and may allow the
+agent to access files and system resources available to your account. Only
+proceed when you trust the Skill and task, avoid running WorkBuddy as
+administrator, and **re-enable the sandbox when finished**.
+
+If you are uncomfortable disabling the sandbox temporarily, please consider
+this limitation **before purchasing a license**. We cannot currently guarantee
+the complete workflow while the sandbox remains enabled.
 
 ## Install
 
