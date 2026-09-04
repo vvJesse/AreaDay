@@ -58,6 +58,18 @@ def unused_port() -> int:
             return port
 
 
+def unlink_with_retry(path: Path, timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
+
+
 def create_minimal_completed_workspace(
     root: Path,
     domain_id: str,
@@ -118,7 +130,8 @@ def create_minimal_completed_workspace(
         "lemma\timportance_tier\tclassification\n"
         f"{lemmas[0]}\tA\timportant_boundary\n"
     )
-    (analysis / "personalized-vocabulary.tsv").write_text(
+    export_path = analysis / "personalized-vocabulary.tsv"
+    export_path.write_text(
         export_content,
         encoding="utf-8",
     )
@@ -133,7 +146,7 @@ def create_minimal_completed_workspace(
                 "importance": {},
                 "vocabulary_snapshot_sha256": "fixture-snapshot",
                 "personalized_vocabulary_sha256": hashlib.sha256(
-                    export_content.encode("utf-8")
+                    export_path.read_bytes()
                 ).hexdigest(),
             }
         ),
@@ -264,6 +277,7 @@ class StateMachineTests(unittest.TestCase):
             monotonic=clock.monotonic,
             sleep=clock.sleep,
             startup_timeout=timeout,
+            fallback_port_count=0,
         )
 
     def test_absent_service_starts_own_instance(self) -> None:
@@ -307,6 +321,22 @@ class StateMachineTests(unittest.TestCase):
         self.assertEqual(result["status"], "started")
         self.assertEqual(process.terminate_calls, 0)
 
+    def test_unresolved_preflight_still_attempts_the_actual_bind(self) -> None:
+        attempt, process = self.attempt()
+        probe = ScriptedProbe(
+            launcher.ProbeResult(
+                launcher.ProbeKind.UNRESOLVED,
+                detail="TCP connection timed out",
+            ),
+            match(self.registry, "own-instance"),
+        )
+
+        result = self.run_ensure(probe, attempt)
+
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(result["port"], 43123)
+        self.assertEqual(process.terminate_calls, 0)
+
     def test_matching_live_service_is_reused_without_starting(self) -> None:
         starter = mock.Mock(side_effect=AssertionError("starter must not run"))
         result = launcher.ensure_workbench(
@@ -316,6 +346,7 @@ class StateMachineTests(unittest.TestCase):
             43124,
             probe=ScriptedProbe(match(self.registry, "running-instance")),
             starter=starter,
+            fallback_port_count=0,
         )
 
         self.assertEqual(result["status"], "reused")
@@ -340,6 +371,7 @@ class StateMachineTests(unittest.TestCase):
                 43125,
                 probe=probe,
                 starter=starter,
+                fallback_port_count=0,
             )
         starter.assert_not_called()
 
@@ -361,6 +393,7 @@ class StateMachineTests(unittest.TestCase):
                 43126,
                 probe=probe,
                 starter=starter,
+                fallback_port_count=0,
             )
         starter.assert_not_called()
 
@@ -383,6 +416,7 @@ class StateMachineTests(unittest.TestCase):
                 expected_domain_ids=("domain-a", "domain-b"),
                 probe=probe,
                 starter=starter,
+                fallback_port_count=0,
             )
         starter.assert_not_called()
 
@@ -469,10 +503,84 @@ class StateMachineTests(unittest.TestCase):
                 43129,
                 probe=probe,
                 starter=lambda *_: attempt,
+                fallback_port_count=0,
             )
 
         self.assertEqual(process.terminate_calls, 1)
         self.assertEqual(process.wait_calls, 1)
+
+    def test_occupied_preferred_port_starts_on_fallback(self) -> None:
+        preferred = 43140
+        fallback = preferred + 1
+        attempt, process = self.attempt()
+        fallback_probes = 0
+        started_ports: list[int] = []
+
+        def probe(port: int, registry: Path) -> launcher.ProbeResult:
+            nonlocal fallback_probes
+            self.assertEqual(registry, self.registry.resolve())
+            if port == preferred:
+                return launcher.ProbeResult(
+                    launcher.ProbeKind.OCCUPIED_UNKNOWN,
+                    detail="identity endpoint returned HTTP 404",
+                )
+            self.assertEqual(port, fallback)
+            fallback_probes += 1
+            if fallback_probes == 1:
+                return launcher.ProbeResult(launcher.ProbeKind.ABSENT)
+            return match(self.registry, "own-instance")
+
+        def starter(
+            registry: Path,
+            domain: str,
+            view: str,
+            port: int,
+        ) -> launcher.LaunchAttempt:
+            del registry, domain, view
+            started_ports.append(port)
+            return attempt
+
+        result = launcher.ensure_workbench(
+            self.registry,
+            "domain-a",
+            "vocabulary",
+            preferred,
+            probe=probe,
+            starter=starter,
+            fallback_port_count=1,
+        )
+
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(result["port"], fallback)
+        self.assertIn(f":{fallback}/", str(result["url"]))
+        self.assertEqual(started_ports, [fallback])
+        self.assertEqual(process.terminate_calls, 0)
+
+    def test_matching_fallback_is_reused_before_free_preferred_starts(self) -> None:
+        preferred = 43142
+        fallback = preferred + 1
+
+        def probe(port: int, registry: Path) -> launcher.ProbeResult:
+            if port == preferred:
+                return launcher.ProbeResult(launcher.ProbeKind.ABSENT)
+            self.assertEqual(port, fallback)
+            return match(registry, "fallback-instance")
+
+        starter = mock.Mock(side_effect=AssertionError("must reuse fallback"))
+        result = launcher.ensure_workbench(
+            self.registry,
+            "domain-a",
+            "briefs",
+            preferred,
+            probe=probe,
+            starter=starter,
+            fallback_port_count=1,
+        )
+
+        self.assertEqual(result["status"], "reused")
+        self.assertEqual(result["port"], fallback)
+        self.assertEqual(result["instance_id"], "fallback-instance")
+        starter.assert_not_called()
 
     def test_exited_concurrent_loser_can_still_reuse_winner(self) -> None:
         attempt, process = self.attempt(return_code=98)
@@ -559,7 +667,7 @@ def http_fixture(
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
                 return
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -591,6 +699,23 @@ class ProbeContractTests(unittest.TestCase):
     def test_connection_refused_is_the_only_absent_state(self) -> None:
         result = launcher.probe_workbench(unused_port(), self.registry, timeout=0.1)
         self.assertIs(result.kind, launcher.ProbeKind.ABSENT)
+
+    def test_connect_timeout_is_unresolved_instead_of_occupied(self) -> None:
+        connection = mock.Mock()
+        connection.connect.side_effect = TimeoutError("timed out")
+        with (
+            mock.patch.object(launcher, "_probe_bindability", return_value=None),
+            mock.patch.object(
+                launcher.http.client,
+                "HTTPConnection",
+                return_value=connection,
+            ),
+        ):
+            result = launcher.probe_workbench(43128, self.registry, timeout=0.1)
+
+        self.assertIs(result.kind, launcher.ProbeKind.UNRESOLVED)
+        connection.request.assert_not_called()
+        connection.close.assert_called_once_with()
 
     def test_matching_identity_uses_canonical_registry_and_ignores_pid(self) -> None:
         unresolved = self.registry.parent / ".." / "real" / "registry.json"
@@ -657,7 +782,7 @@ class ProbeContractTests(unittest.TestCase):
             launcher.http.client,
             "HTTPConnection",
             return_value=connection,
-        ):
+        ), mock.patch.object(launcher, "_probe_bindability", return_value=None):
             with self.assertRaisesRegex(
                 launcher.WorkbenchAccessError,
                 "No service was accepted or left running",
@@ -760,6 +885,8 @@ class RealLifecycleTests(unittest.TestCase):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=2.0)
+        for log_path in self.root.glob("*.log"):
+            unlink_with_retry(log_path)
 
     def starter(
         self,
@@ -820,6 +947,7 @@ class RealLifecycleTests(unittest.TestCase):
             probe=self.probe,
             starter=starter,
             startup_timeout=timeout,
+            fallback_port_count=0,
         )
 
     def test_real_delayed_child_becomes_ready_without_false_conflict(self) -> None:
@@ -855,6 +983,27 @@ class RealLifecycleTests(unittest.TestCase):
                 self.ensure(port, forbidden_starter)
         forbidden_starter.assert_not_called()
 
+    def test_real_foreign_preferred_port_uses_a_live_fallback(self) -> None:
+        with http_fixture({"service": "something-else"}) as preferred:
+            if preferred == 65_535:
+                self.skipTest("No higher fallback port is available")
+            with mock.patch.object(launcher, "POLL_INTERVAL_SECONDS", 0.02):
+                result = launcher.ensure_workbench(
+                    self.registry,
+                    "domain-a",
+                    "vocabulary",
+                    preferred,
+                    probe=self.probe,
+                    starter=self.starter(),
+                    startup_timeout=3.0,
+                    fallback_port_count=min(9, 65_535 - preferred),
+                )
+
+        self.assertEqual(result["status"], "started")
+        self.assertGreater(result["port"], preferred)
+        fallback_probe = self.probe(int(result["port"]), self.registry)
+        self.assertIs(fallback_probe.kind, launcher.ProbeKind.MATCH)
+
     def test_default_probe_rejects_a_stale_loaded_domain_set(self) -> None:
         forbidden_starter = mock.Mock(side_effect=AssertionError("must not spawn"))
         with http_fixture(identity(self.registry, "old", ("domain-a",))) as port:
@@ -869,6 +1018,7 @@ class RealLifecycleTests(unittest.TestCase):
                     port,
                     expected_domain_ids=("domain-a", "domain-b"),
                     starter=forbidden_starter,
+                    fallback_port_count=0,
                 )
         forbidden_starter.assert_not_called()
 
@@ -957,7 +1107,7 @@ class ProductionHandshakeTests(unittest.TestCase):
             try:
                 launcher.stop_launch_attempt(attempt)
             finally:
-                attempt.log_path.unlink(missing_ok=True)
+                unlink_with_retry(attempt.log_path)
 
     def recording_starter(
         self,
@@ -981,6 +1131,7 @@ class ProductionHandshakeTests(unittest.TestCase):
                 expected_domain_ids=("alpha", "beta"),
                 starter=self.recording_starter,
                 startup_timeout=8.0,
+                fallback_port_count=0,
             )
 
         self.assertEqual(result["status"], "started")

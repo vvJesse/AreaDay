@@ -129,11 +129,12 @@ domain. Otherwise let the launcher reuse the running workbench or select the
 registry's active domain. Do not infer authorization from an ambient browser
 tab.
 
-The launcher performs the operational work: it identifies a compatible live
-AreaDay service on port 8765 by its exact registry, starts the
-registered-domain service only when needed, waits until it is ready, and prints
-the exact user-facing URL. Do not repeat runtime checks, registry inspection,
-server startup, identity checks, or URL construction outside the launcher.
+The launcher performs the operational work: it treats port 8765 as the preferred
+port, identifies a compatible live AreaDay service across its bounded fallback
+range by exact registry, starts the registered-domain service only when needed,
+waits until it is ready, and prints the exact user-facing URL. Do not repeat
+runtime checks, registry inspection, server startup, identity checks, port
+selection, or URL construction outside the launcher.
 
 The production Skill uses one upgrade-safe AreaDay registry in the operating
 system's application-data directory. The installer performs one exact legacy
@@ -148,10 +149,12 @@ then stop. Do not inspect the page, take control of the page, click a tab or
 button, start a review session, reload it, or test the interface unless the user
 explicitly asks for diagnosis or UI testing. The user operates the workbench.
 
-The exact URL must contain both the selected domain and landing view:
+The exact returned URL must contain the launcher-selected port, selected domain,
+and landing view. Port 8765 remains preferred; a nearby fallback may be used
+when it is unavailable:
 
 ```text
-http://127.0.0.1:8765/?domain=<domain-id>#<view>
+http://127.0.0.1:<selected-port>/?domain=<domain-id>#<view>
 ```
 
 ## First-time initialization

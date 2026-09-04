@@ -39,6 +39,70 @@ class CalibrationServiceError(RuntimeError):
         self.code = code
 
 
+class InvalidCalibrationData(ValueError):
+    """The local calibration files cannot be loaded as one completed result."""
+
+
+RECOVERY_NOTICE = "本地校准数据无法读取，已清除。请重新回答 30 道题。"
+
+
+def load_completed_calibration(
+    state_path: Path,
+    result_path: Path,
+    export_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load the fields used by the app, without byte-level consistency checks."""
+
+    if not all(path.is_file() for path in (state_path, result_path, export_path)):
+        raise InvalidCalibrationData("calibration output files are incomplete")
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        with export_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            if not {"lemma", "classification"}.issubset(reader.fieldnames or []):
+                raise InvalidCalibrationData(
+                    "personalized vocabulary columns are invalid"
+                )
+            list(reader)
+    except InvalidCalibrationData:
+        raise
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+        csv.Error,
+    ) as error:
+        raise InvalidCalibrationData(
+            "calibration output files cannot be loaded"
+        ) from error
+
+    answers = state.get("answers") if isinstance(state, dict) else None
+    if (
+        not isinstance(state, dict)
+        or not isinstance(result, dict)
+        or not isinstance(answers, list)
+        or len(answers) != 30
+        or not isinstance(result.get("counts"), dict)
+        or not isinstance(result.get("threshold"), dict)
+        or not isinstance(result.get("importance"), dict)
+    ):
+        raise InvalidCalibrationData("completed calibration data has an invalid format")
+    return state, result
+
+
+def clear_calibration_outputs(
+    state_path: Path,
+    result_path: Path,
+    export_path: Path,
+) -> None:
+    """Remove only product-generated calibration outputs."""
+
+    for path in (state_path, result_path, export_path):
+        path.unlink(missing_ok=True)
+
+
 def serialize_word_statistics(word: Any) -> dict[str, Any]:
     return {
         "lemma": str(word.lemma),
@@ -198,13 +262,13 @@ class RemoteCalibrationSession:
         self.session_id = ""
         self.answers: list[dict[str, Any]] = []
         self._remote_state: dict[str, Any] | None = None
+        self.recovery_notice: str | None = None
         if self._load_completed_local_result():
             return
         saved = self._read_saved_state()
         if len(saved.get("answers") or []) >= 30:
-            raise RuntimeError(
-                "已完成的词汇校准文件不完整或损坏；为避免静默重算，已停止载入"
-            )
+            self._recover_local_calibration()
+            saved = {}
         self.answers = list(saved.get("answers") or [])
         saved_session = saved.get("remote_session_id")
         if isinstance(saved_session, str) and saved_session:
@@ -218,6 +282,10 @@ class RemoteCalibrationSession:
                 },
             )
         self._accept_response(response)
+
+    def _recover_local_calibration(self) -> None:
+        clear_calibration_outputs(self.state_path, self.result_path, self.export_path)
+        self.recovery_notice = RECOVERY_NOTICE
 
     def _license_envelope(self) -> dict[str, Any]:
         try:
@@ -245,43 +313,37 @@ class RemoteCalibrationSession:
             return {}
         try:
             payload = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-            raise RuntimeError(
-                f"词汇校准状态损坏，已停止载入：{self.state_path}"
-            ) from error
-        return payload if isinstance(payload, dict) else {}
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self._recover_local_calibration()
+            return {}
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("answers", []), list
+        ):
+            self._recover_local_calibration()
+            return {}
+        return payload
 
     def _load_completed_local_result(self) -> bool:
-        if not (
-            self.state_path.is_file()
-            and self.result_path.is_file()
-            and self.export_path.is_file()
-        ):
+        if not (self.result_path.is_file() or self.export_path.is_file()):
             return False
         try:
-            state = json.loads(self.state_path.read_text(encoding="utf-8"))
-            result = json.loads(self.result_path.read_text(encoding="utf-8"))
-            answers = state.get("answers")
-            expected_hash = result.get("personalized_vocabulary_sha256")
-            if (
-                not isinstance(answers, list)
-                or len(answers) != 30
-                or not isinstance(result.get("counts"), dict)
-                or not isinstance(expected_hash, str)
-                or hashlib.sha256(self.export_path.read_bytes()).hexdigest()
-                != expected_hash
-            ):
-                return False
+            state, result = load_completed_calibration(
+                self.state_path,
+                self.result_path,
+                self.export_path,
+            )
             if (
                 self.enforce_snapshot_match
                 and result.get("vocabulary_snapshot_sha256") != self.snapshot
             ):
-                return False
+                raise InvalidCalibrationData("vocabulary snapshot does not match")
+            answers = state["answers"]
             self.answers = answers
             self.session_id = str(state.get("remote_session_id") or "completed-local")
             self._remote_state = self._completed_public_state(result)
             return True
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except InvalidCalibrationData:
+            self._recover_local_calibration()
             return False
 
     def _completed_public_state(self, result: dict[str, Any]) -> dict[str, Any]:
@@ -325,6 +387,8 @@ class RemoteCalibrationSession:
             )
         self.session_id = session_id
         self._remote_state = {"corpus_label": self.corpus_label, **calibration}
+        if self.recovery_notice:
+            self._remote_state["recovery_notice"] = self.recovery_notice
         if calibration["complete"]:
             self._write_final_outputs(calibration)
         else:
@@ -413,9 +477,6 @@ class RemoteCalibrationSession:
         result["vocabulary_snapshot_sha256"] = self.snapshot
         result["mutation_revision"] = int(calibration.get("mutation_revision") or 0)
         export_content = self._export_tsv(rows)
-        result["personalized_vocabulary_sha256"] = hashlib.sha256(
-            export_content.encode("utf-8")
-        ).hexdigest()
         self.result_path.parent.mkdir(parents=True, exist_ok=True)
         result_temporary = self.result_path.with_suffix(self.result_path.suffix + ".tmp")
         export_temporary = self.export_path.with_suffix(self.export_path.suffix + ".tmp")

@@ -211,6 +211,9 @@ function renderThreshold(result) {
 
 function renderCalibration(calibration) {
   mutationRevision = Number(calibration.mutation_revision || 0);
+  const calibrationNotice = byId("calibrationNotice");
+  calibrationNotice.hidden = !calibration.recovery_notice;
+  calibrationNotice.textContent = calibration.recovery_notice || "";
   setText("corpusLabel", calibration.corpus_label ? `· ${calibration.corpus_label}` : "");
   setText("progressText", `${calibration.answered} / ${calibration.question_limit}`);
   if (!calibration.complete) {
