@@ -8,6 +8,7 @@ import errno
 import http.client
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -23,8 +24,9 @@ from domain_registry import (
     DomainRegistry,
     default_registry_path,
     validate_completed_workspace,
-    validate_initialized_workspace,
+    validate_corpus_launch_workspace,
 )
+from remote_calibration import InvalidCalibrationData
 from researchramp_license import enforce_business_license
 from workbench_protocol import (
     WORKBENCH_IDENTITY_PATH,
@@ -37,6 +39,7 @@ HOST = "127.0.0.1"
 PORT = 8765
 VIEWS = ("vocabulary", "briefs", "review")
 PROBE_TIMEOUT_SECONDS = 0.4
+FALLBACK_PORT_COUNT = 9
 STARTUP_TIMEOUT_SECONDS = 12.0
 EXIT_CONVERGENCE_SECONDS = 0.5
 POLL_INTERVAL_SECONDS = 0.1
@@ -45,6 +48,7 @@ LOG_TAIL_BYTES = 16_384
 
 class ProbeKind(str, Enum):
     ABSENT = "absent"
+    UNRESOLVED = "unresolved"
     MATCH = "match"
     OTHER_REGISTRY = "other_registry"
     STALE_RUNTIME = "stale_runtime"
@@ -67,7 +71,7 @@ class LaunchAttempt:
 
 
 class WorkbenchConflict(RuntimeError):
-    """The fixed workbench port is owned by an incompatible live service."""
+    """No candidate port can host or reuse a compatible live service."""
 
 
 class WorkbenchAccessError(RuntimeError):
@@ -87,7 +91,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--domain", help="Explicit registered domain ID.")
     parser.add_argument("--view", choices=VIEWS, default="vocabulary")
     parser.add_argument("--registry", type=Path)
-    parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=PORT,
+        help="Preferred workbench port; nearby fallbacks are selected automatically.",
+    )
     parser.add_argument(
         "--ready-calibration-domain",
         help=(
@@ -105,6 +114,43 @@ def _connection_was_refused(error: OSError) -> bool:
     }
 
 
+def _address_is_in_use(error: OSError) -> bool:
+    return error.errno in {
+        errno.EADDRINUSE,
+        10048,  # WSAEADDRINUSE
+    }
+
+
+def _address_is_denied(error: OSError) -> bool:
+    return error.errno in {
+        errno.EACCES,
+        errno.EPERM,
+        10013,  # WSAEACCES (for example, an excluded Windows port)
+    }
+
+
+def _probe_bindability(port: int) -> ProbeResult | None:
+    """Return a decisive bind result, or ``None`` when a live owner may exist."""
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind((HOST, port))
+        return ProbeResult(ProbeKind.ABSENT)
+    except OSError as error:
+        if _address_is_in_use(error):
+            return None
+        if _address_is_denied(error):
+            return ProbeResult(
+                ProbeKind.OCCUPIED_UNKNOWN,
+                detail=f"AreaDay cannot bind this port: {type(error).__name__}: {error}",
+            )
+        raise WorkbenchAccessError(
+            f"AreaDay could not inspect loopback port {port}: {error}"
+        ) from error
+    finally:
+        listener.close()
+
+
 def probe_workbench(
     port: int,
     registry_path: Path,
@@ -112,9 +158,38 @@ def probe_workbench(
     expected_domain_ids: tuple[str, ...] | None = None,
     timeout: float = PROBE_TIMEOUT_SECONDS,
 ) -> ProbeResult:
-    """Identify the live port owner; only explicit refusal means no service."""
+    """Identify a live owner, using bindability as the availability authority."""
+
+    bind_result = _probe_bindability(port)
+    if bind_result is not None:
+        return bind_result
 
     connection = http.client.HTTPConnection(HOST, port, timeout=timeout)
+    try:
+        connection.connect()
+    except OSError as error:
+        connection.close()
+        if _connection_was_refused(error):
+            return ProbeResult(ProbeKind.ABSENT)
+        if isinstance(error, TimeoutError):
+            return ProbeResult(
+                ProbeKind.UNRESOLVED,
+                detail=f"TCP connection timed out: {error}",
+            )
+        if isinstance(error, PermissionError) or error.errno in {
+            errno.EACCES,
+            errno.EPERM,
+        }:
+            raise WorkbenchAccessError(
+                "AreaDay could not access its loopback identity endpoint at "
+                f"http://{HOST}:{port}{WORKBENCH_IDENTITY_PATH}: {error}. "
+                "No service was accepted or left running."
+            ) from error
+        return ProbeResult(
+            ProbeKind.UNRESOLVED,
+            detail=f"TCP connection failed: {type(error).__name__}: {error}",
+        )
+
     try:
         connection.request(
             "GET",
@@ -124,8 +199,6 @@ def probe_workbench(
         response = connection.getresponse()
         body = response.read(65_537)
     except OSError as error:
-        if _connection_was_refused(error):
-            return ProbeResult(ProbeKind.ABSENT)
         if isinstance(error, PermissionError) or error.errno in {
             errno.EACCES,
             errno.EPERM,
@@ -273,10 +346,10 @@ def launchable_registry_domain_ids(
     for item in registry.domains:
         try:
             if item.domain_id == ready_calibration_domain:
-                validate_initialized_workspace(Path(item.workspace))
+                validate_corpus_launch_workspace(Path(item.workspace))
             else:
                 validate_completed_workspace(Path(item.workspace))
-        except FileNotFoundError:
+        except (FileNotFoundError, InvalidCalibrationData):
             continue
         completed.append(item.domain_id)
     return tuple(completed)
@@ -479,52 +552,49 @@ def _result(
         "status": status,
         "instance_id": identity["instance_id"],
         "domain_id": domain_id,
+        "port": port,
         "url": workbench_url(port, domain_id, view),
     }
 
 
-def ensure_workbench(
+def candidate_ports(preferred_port: int, fallback_port_count: int) -> tuple[int, ...]:
+    if not 1 <= preferred_port <= 65_535:
+        raise ValueError("Workbench port must be between 1 and 65535")
+    if fallback_port_count < 0:
+        raise ValueError("fallback_port_count must be non-negative")
+    final_port = min(65_535, preferred_port + fallback_port_count)
+    return tuple(range(preferred_port, final_port + 1))
+
+
+def _candidate_conflicts(
+    ports: tuple[int, ...],
+    results: dict[int, ProbeResult],
+) -> WorkbenchConflict:
+    details = "; ".join(
+        f"{candidate}: {results[candidate].kind.value}"
+        + (f" ({results[candidate].detail})" if results[candidate].detail else "")
+        for candidate in ports
+    )
+    return WorkbenchConflict(
+        "No compatible AreaDay workbench port is available in the candidate "
+        f"range {ports[0]}-{ports[-1]}. Details: {details}"
+    )
+
+
+def _start_on_candidate(
     registry_path: Path,
     domain_id: str,
     view: str,
     port: int,
+    initial: ProbeResult,
     *,
-    expected_domain_ids: tuple[str, ...] | None = None,
-    probe: Callable[[int, Path], ProbeResult] | None = None,
-    starter: Callable[[Path, str, str, int], LaunchAttempt] | None = None,
-    monotonic: Callable[[], float] | None = None,
-    sleep: Callable[[float], None] | None = None,
-    startup_timeout: float = STARTUP_TIMEOUT_SECONDS,
+    probe: Callable[[int, Path], ProbeResult],
+    starter: Callable[[Path, str, str, int], LaunchAttempt],
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+    startup_timeout: float,
 ) -> dict[str, Any]:
-    """Converge on exactly one compatible live workbench for this registry."""
-
-    expected_domain_ids = tuple(
-        sorted(set(expected_domain_ids or (domain_id,)))
-    )
-    if domain_id not in expected_domain_ids:
-        raise ValueError(
-            f"Selected AreaDay domain is not in the completed set: {domain_id}"
-        )
-    if probe is None:
-        def probe_live(candidate_port: int, candidate_registry: Path) -> ProbeResult:
-            return probe_workbench(
-                candidate_port,
-                candidate_registry,
-                expected_domain_ids=expected_domain_ids,
-            )
-
-        probe = probe_live
-    starter = starter or start_workbench
-    monotonic = monotonic or time.monotonic
-    sleep = sleep or time.sleep
-    registry_path = registry_path.expanduser().resolve()
-
-    initial = probe(port, registry_path)
-    if initial.kind is ProbeKind.MATCH:
-        assert initial.identity is not None
-        return _result("reused", domain_id, view, port, initial.identity)
-    if initial.kind is not ProbeKind.ABSENT:
-        raise _conflict(port, initial)
+    """Start one candidate and converge on the process that actually bound it."""
 
     attempt = starter(registry_path, domain_id, view, port)
     keep_child = False
@@ -565,6 +635,8 @@ def ensure_workbench(
                                 f"{excerpt}"
                             )
                         raise conflict
+                    if last_probe.kind is ProbeKind.UNRESOLVED:
+                        raise _conflict(port, last_probe)
                     message = (
                         "The AreaDay workbench stopped during startup "
                         f"with exit code {return_code}. Last port state: "
@@ -595,6 +667,7 @@ def ensure_workbench(
                     ProbeKind.STALE_RUNTIME,
                     ProbeKind.INCOMPATIBLE,
                     ProbeKind.OCCUPIED_UNKNOWN,
+                    ProbeKind.UNRESOLVED,
                 }:
                     raise _conflict(port, final_probe)
                 excerpt = startup_log_excerpt(attempt.log_path)
@@ -609,6 +682,93 @@ def ensure_workbench(
     finally:
         if not keep_child:
             stop_launch_attempt(attempt)
+
+
+def ensure_workbench(
+    registry_path: Path,
+    domain_id: str,
+    view: str,
+    port: int,
+    *,
+    expected_domain_ids: tuple[str, ...] | None = None,
+    probe: Callable[[int, Path], ProbeResult] | None = None,
+    starter: Callable[[Path, str, str, int], LaunchAttempt] | None = None,
+    monotonic: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
+    startup_timeout: float = STARTUP_TIMEOUT_SECONDS,
+    fallback_port_count: int = FALLBACK_PORT_COUNT,
+) -> dict[str, Any]:
+    """Reuse or start one workbench, preferring ``port`` over fallbacks."""
+
+    expected_domain_ids = tuple(
+        sorted(set(expected_domain_ids or (domain_id,)))
+    )
+    if domain_id not in expected_domain_ids:
+        raise ValueError(
+            f"Selected AreaDay domain is not in the completed set: {domain_id}"
+        )
+    if probe is None:
+        def probe_live(candidate_port: int, candidate_registry: Path) -> ProbeResult:
+            return probe_workbench(
+                candidate_port,
+                candidate_registry,
+                expected_domain_ids=expected_domain_ids,
+            )
+
+        probe = probe_live
+    starter = starter or start_workbench
+    monotonic = monotonic or time.monotonic
+    sleep = sleep or time.sleep
+    registry_path = registry_path.expanduser().resolve()
+    ports = candidate_ports(port, fallback_port_count)
+
+    initial_results: dict[int, ProbeResult] = {}
+    for candidate_port in ports:
+        initial = probe(candidate_port, registry_path)
+        initial_results[candidate_port] = initial
+        if initial.kind is ProbeKind.MATCH:
+            assert initial.identity is not None
+            return _result(
+                "reused", domain_id, view, candidate_port, initial.identity
+            )
+
+    conflicts: dict[int, ProbeResult] = {}
+    for candidate_port in ports:
+        initial = initial_results[candidate_port]
+        if initial.kind not in {ProbeKind.ABSENT, ProbeKind.UNRESOLVED}:
+            conflicts[candidate_port] = initial
+            continue
+        try:
+            return _start_on_candidate(
+                registry_path,
+                domain_id,
+                view,
+                candidate_port,
+                initial,
+                probe=probe,
+                starter=starter,
+                monotonic=monotonic,
+                sleep=sleep,
+                startup_timeout=startup_timeout,
+            )
+        except WorkbenchConflict:
+            latest = probe(candidate_port, registry_path)
+            if latest.kind is ProbeKind.MATCH:
+                assert latest.identity is not None
+                return _result(
+                    "reused",
+                    domain_id,
+                    view,
+                    candidate_port,
+                    latest.identity,
+                )
+            conflicts[candidate_port] = latest
+            if len(ports) == 1:
+                raise
+
+    if len(ports) == 1:
+        raise _conflict(port, initial_results[port])
+    raise _candidate_conflicts(ports, {**initial_results, **conflicts})
 
 
 def main() -> None:
@@ -630,23 +790,30 @@ def main() -> None:
         raise RuntimeError(
             "--ready-calibration-domain must equal the explicitly selected --domain"
         )
+    calibration_domain = ready_calibration_domain or args.domain
     completed_domain_ids = launchable_registry_domain_ids(
         registry,
-        ready_calibration_domain,
+        calibration_domain,
     )
+    if not completed_domain_ids and calibration_domain is None:
+        calibration_domain = registry.active_domain_id
+        completed_domain_ids = launchable_registry_domain_ids(
+            registry,
+            calibration_domain,
+        )
     domain_id = select_registry_domain(
         registry,
         args.domain,
         completed_domain_ids,
     )
     starter = None
-    if ready_calibration_domain is not None:
+    if calibration_domain is not None:
         starter = lambda path, domain, view, port: start_workbench(
             path,
             domain,
             view,
             port,
-            ready_calibration_domain=ready_calibration_domain,
+            ready_calibration_domain=calibration_domain,
         )
     ensure_kwargs: dict[str, Any] = {
         "expected_domain_ids": completed_domain_ids,

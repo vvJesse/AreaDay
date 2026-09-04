@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -34,6 +35,86 @@ def controller_args(root: Path) -> argparse.Namespace:
 
 
 class InitializationControllerTests(unittest.TestCase):
+    def test_launch_verification_uses_the_selected_fallback_port(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = InitializationController(controller_args(root))
+            analysis = controller.workspace / "analysis"
+            analysis.mkdir(parents=True)
+            (analysis / "vocabulary-map.tsv").write_text(
+                "lemma\tpart_of_speech\ttotal_count\tdocument_count\tdocument_share\n"
+                + "".join(
+                    f"word{index}\tnoun\t1\t1\t1.0\n" for index in range(30)
+                ),
+                encoding="utf-8",
+            )
+            selected_port = controller.args.port + 1
+            launch = {
+                "status": "started",
+                "instance_id": "fallback-instance",
+                "domain_id": "test-domain",
+                "port": selected_port,
+                "url": (
+                    f"http://127.0.0.1:{selected_port}/"
+                    "?domain=test-domain#vocabulary"
+                ),
+            }
+            app_state = {
+                "domain_id": "test-domain",
+                "calibration": {
+                    "question_limit": 30,
+                    "complete": False,
+                    "word": {},
+                    "answered": 0,
+                },
+                "terminology": {"count": 0, "terms": []},
+            }
+            terms_api = {"count": 0, "terms": []}
+            registry = SimpleNamespace(
+                register=lambda *_args, **_kwargs: SimpleNamespace(
+                    domain_id="test-domain"
+                )
+            )
+            identity_probe = SimpleNamespace(
+                kind=SimpleNamespace(value="match"),
+                identity={"instance_id": "fallback-instance"},
+            )
+
+            with (
+                patch("initialize.DomainRegistry", return_value=registry),
+                patch(
+                    "initialize.launchable_registry_domain_ids",
+                    return_value=("test-domain",),
+                ),
+                patch("initialize.ensure_workbench", return_value=launch),
+                patch(
+                    "initialize.probe_workbench",
+                    return_value=identity_probe,
+                ) as probe,
+                patch(
+                    "initialize._json_get",
+                    side_effect=[app_state, terms_api],
+                ) as json_get,
+                patch(
+                    "initialize.load_finalized_terminology",
+                    return_value=(
+                        [],
+                        {},
+                        {"selected_terminology_count": 0},
+                    ),
+                ),
+            ):
+                result = controller._launch_and_verify(
+                    {"profile_id": "test-domain"}
+                )
+
+            self.assertEqual(result["port"], selected_port)
+            self.assertEqual(probe.call_args.args[0], selected_port)
+            self.assertEqual(
+                [call.args[0] for call in json_get.call_args_list],
+                [selected_port, selected_port],
+            )
+
     def test_host_review_is_nonterminal_and_resumable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

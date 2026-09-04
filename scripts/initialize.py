@@ -362,8 +362,9 @@ class InitializationController:
             expected_domain_ids=domain_ids,
             starter=starter,
         )
+        selected_port = int(launch["port"])
         identity_probe = probe_workbench(
-            self.args.port,
+            selected_port,
             self.registry_path,
             expected_domain_ids=domain_ids,
             timeout=2.0,
@@ -373,12 +374,12 @@ class InitializationController:
 
         query = urlencode({"domain_id": domain_id})
         app_state = _json_get(
-            self.args.port,
+            selected_port,
             f"/api/app-state?{query}",
             domain_id=domain_id,
         )
         terms_api = _json_get(
-            self.args.port,
+            selected_port,
             f"/api/terms?{query}",
             domain_id=domain_id,
         )

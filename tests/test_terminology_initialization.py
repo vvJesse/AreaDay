@@ -435,6 +435,38 @@ class TerminologyInitializationTests(unittest.TestCase):
             validate_completed_workspace(workspace)
             validate_corpus_launch_workspace(workspace)
 
+    def test_unloadable_calibration_outputs_do_not_block_recalibration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = make_workspace(Path(temporary))
+            analysis = workspace / "analysis"
+            (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
+            write_json(analysis / "terminology-explanations.json", {})
+            write_json(
+                analysis / "host-review-summary.json",
+                {
+                    "schema_version": 1,
+                    "reviewer": "current-host-agent",
+                    "review_passes": 1,
+                    "terminology_candidate_count": 0,
+                    "selected_terminology_count": 0,
+                },
+            )
+            calibration_paths = (
+                analysis / "vocabulary-calibration-session.json",
+                analysis / "vocabulary-calibration-result.json",
+                analysis / "personalized-vocabulary.tsv",
+            )
+            calibration_paths[0].write_text("not json", encoding="utf-8")
+            calibration_paths[1].write_text("{}", encoding="utf-8")
+            calibration_paths[2].write_text(
+                "lemma\tclassification\nmodel\tlikely_unknown\n",
+                encoding="utf-8",
+            )
+
+            validate_corpus_launch_workspace(workspace)
+
+            self.assertTrue(all(path.exists() for path in calibration_paths))
+
     def test_completed_workspace_rejects_review_count_that_disagrees_with_term_map(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = make_workspace(Path(temporary))

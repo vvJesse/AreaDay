@@ -216,6 +216,7 @@ class RemoteCalibrationTests(unittest.TestCase):
             state = json.loads(session.state_path.read_text(encoding="utf-8"))
             self.assertEqual(result["counts"]["total"], 30)
             self.assertEqual(len(state["answers"]), 30)
+            self.assertNotIn("personalized_vocabulary_sha256", result)
             self.assertIn("word0\tnoun\t0.250000\tlikely_unknown", export)
             self.assertEqual(session.public_state()["complete"], True)
 

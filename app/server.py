@@ -38,10 +38,10 @@ from domain_registry import (  # noqa: E402
     DomainRegistry,
     validate_completed_workspace,
     validate_corpus_launch_workspace,
-    validate_initialized_workspace,
 )
 from remote_calibration import (  # noqa: E402
     CalibrationServiceError,
+    InvalidCalibrationData,
     RemoteCalibrationSession,
 )
 from workbench_protocol import (  # noqa: E402
@@ -712,7 +712,7 @@ def _workspace_context(
 ) -> DomainContext:
     workspace = Path(registration.workspace).resolve()
     if allow_incomplete_calibration:
-        validate_initialized_workspace(workspace)
+        validate_corpus_launch_workspace(workspace)
     else:
         validate_completed_workspace(workspace)
     vocabulary = workspace / "analysis" / "vocabulary-map.tsv"
@@ -774,10 +774,10 @@ def build_runtime(args: argparse.Namespace) -> AppRuntime:
         for item in registry.domains:
             try:
                 if item.domain_id == ready_calibration_domain:
-                    validate_initialized_workspace(Path(item.workspace))
+                    validate_corpus_launch_workspace(Path(item.workspace))
                 else:
                     validate_completed_workspace(Path(item.workspace))
-            except FileNotFoundError:
+            except (FileNotFoundError, InvalidCalibrationData):
                 continue
             completed_registrations.append(item)
         if not completed_registrations:

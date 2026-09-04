@@ -9,7 +9,6 @@ records between workspaces.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -20,6 +19,10 @@ from typing import Any
 
 from terminology_assets import load_finalized_terminology
 from migrate_areaday_data import areaday_data_root
+from remote_calibration import (
+    InvalidCalibrationData,
+    load_completed_calibration,
+)
 
 
 SCHEMA_VERSION = 1
@@ -147,39 +150,12 @@ def validate_completed_workspace(workspace: Path) -> dict[str, Any]:
         require_review_summary=False,
         require_orthography_review=False,
     )
-    required = (
-        resolved / "analysis" / "vocabulary-map.tsv",
-        resolved / "analysis" / "vocabulary-calibration-session.json",
-        resolved / "analysis" / "vocabulary-calibration-result.json",
-        resolved / "analysis" / "personalized-vocabulary.tsv",
+    analysis = resolved / "analysis"
+    load_completed_calibration(
+        analysis / "vocabulary-calibration-session.json",
+        analysis / "vocabulary-calibration-result.json",
+        analysis / "personalized-vocabulary.tsv",
     )
-    missing = [str(path) for path in required if not path.is_file()]
-    if missing:
-        raise FileNotFoundError(
-            "AreaDay initialization is incomplete; missing: " + ", ".join(missing)
-        )
-    try:
-        session = json.loads(required[1].read_text(encoding="utf-8"))
-        result = json.loads(required[2].read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-        raise ValueError(f"Invalid completed calibration in workspace: {resolved}") from error
-    answers = session.get("answers")
-    counts = result.get("counts")
-    if not isinstance(answers, list) or len(answers) != 30 or not isinstance(counts, dict):
-        raise ValueError(f"AreaDay calibration is not complete: {resolved}")
-    if not isinstance(result.get("threshold"), dict) or not isinstance(
-        result.get("importance"), dict
-    ):
-        raise ValueError(f"AreaDay calibration result is incomplete: {resolved}")
-    if not str(result.get("vocabulary_snapshot_sha256") or ""):
-        raise ValueError(f"AreaDay calibration snapshot is missing: {resolved}")
-    export_bytes = required[3].read_bytes()
-    expected_export_hash = str(result.get("personalized_vocabulary_sha256") or "")
-    if not expected_export_hash or hashlib.sha256(export_bytes).hexdigest() != expected_export_hash:
-        raise ValueError(f"AreaDay personalized vocabulary is inconsistent: {resolved}")
-    export_rows = max(0, export_bytes.count(b"\n") - 1)
-    if export_rows != int(counts.get("total") or 0):
-        raise ValueError(f"AreaDay personalized vocabulary row count is inconsistent: {resolved}")
     return profile
 
 
@@ -192,7 +168,10 @@ def validate_corpus_launch_workspace(workspace: Path) -> dict[str, Any]:
         (analysis / "vocabulary-calibration-result.json").is_file()
         or (analysis / "personalized-vocabulary.tsv").is_file()
     ):
-        return validate_completed_workspace(resolved)
+        try:
+            return validate_completed_workspace(resolved)
+        except InvalidCalibrationData:
+            pass
     return validate_initialized_workspace(resolved)
 
 
