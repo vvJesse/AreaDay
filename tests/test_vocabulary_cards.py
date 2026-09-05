@@ -15,7 +15,12 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from continuous_state import ContinuousStore  # noqa: E402
-from vocabulary_cards import build_catalog, card_id, prepare_review_input  # noqa: E402
+from vocabulary_cards import (  # noqa: E402
+    build_catalog,
+    card_id,
+    load_catalog,
+    prepare_review_input,
+)
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -234,6 +239,11 @@ class VocabularyCardBuildTests(unittest.TestCase):
             )
 
             self.assertEqual(result["candidate_count"], 1)
+            self.assertEqual(result["batch_count"], 1)
+            self.assertEqual(payload["candidate_count"], len(payload["candidates"]))
+            self.assertEqual(payload["batch_count"], 1)
+            batch = json.loads(Path(payload["batches"][0]["path"]).read_text(encoding="utf-8"))
+            self.assertEqual(batch["candidate_count"], len(batch["candidates"]))
             self.assertEqual(
                 [item["observed_lemma"] for item in payload["candidates"]],
                 ["canonicalterm"],
@@ -273,10 +283,16 @@ class VocabularyCardBuildTests(unittest.TestCase):
             selection.write_text(
                 json.dumps(
                     {
+                        "vocabulary_card_review_schema_version": 3,
                         "vocabulary_card_glosses": {
                             "beta": {
                                 "meaning_zh": "贝塔的人工释义。",
                                 "sense_key": "beta-concept",
+                                "evidence": {
+                                    "kind": "representative_sentence",
+                                    "value": "Beta is here.",
+                                },
+                                "context_rationale": "The sentence uses beta as the named concept.",
                             }
                         }
                     }
@@ -297,11 +313,85 @@ class VocabularyCardBuildTests(unittest.TestCase):
 
             result = build_catalog(workspace, selection, dictionary)
             cards = [json.loads(line) for line in (analysis / "vocabulary-card-catalog.jsonl").read_text(encoding="utf-8").splitlines()]
-            self.assertEqual(result, {"card_count": 2, "ecdict_count": 1, "agent_count": 1, "english_count": 1})
+            self.assertEqual(
+                result,
+                {
+                    "semantic_review_contract_version": 3,
+                    "card_count": 2,
+                    "ecdict_count": 1,
+                    "agent_count": 1,
+                    "english_count": 1,
+                },
+            )
             self.assertEqual(cards[0]["meaning_origin"], "ecdict")
             self.assertEqual(cards[1]["meaning_origin"], "agent")
             self.assertEqual(cards[1]["meaning_en"], "")
             self.assertEqual(cards[1]["sense_key"], "beta-concept")
+
+    def test_large_review_is_split_into_bounded_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "vocabulary-map.jsonl",
+                [
+                    {
+                        "lemma": f"term{index}",
+                        "part_of_speech": "noun",
+                        "representative_sentences": [
+                            {
+                                "openalex_id": "W1",
+                                "sentence": f"Context for term{index}.",
+                            }
+                        ],
+                    }
+                    for index in range(41)
+                ],
+            )
+            write_jsonl(analysis / "terminology-candidates.jsonl", [])
+            (analysis / "orthography-review-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "reviewed_candidate_count": 0,
+                        "replacement_count": 0,
+                        "drop_count": 0,
+                        "explicit_keep_count": 0,
+                        "unchanged_candidate_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "corpus-stats.json").write_text(
+                json.dumps({"orthography_review_applied": True}), encoding="utf-8"
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+
+            result = prepare_review_input(workspace, dictionary)
+            manifest = json.loads(
+                (analysis / "vocabulary-card-review-input.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            batch_sizes = [
+                json.loads(Path(batch["path"]).read_text(encoding="utf-8"))[
+                    "candidate_count"
+                ]
+                for batch in manifest["batches"]
+            ]
+
+            self.assertEqual(result["candidate_count"], 41)
+            self.assertEqual(result["batch_count"], 2)
+            self.assertEqual(batch_sizes, [40, 1])
 
     def test_domain_acronym_is_reviewed_in_context_instead_of_trusting_ecdict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -428,11 +518,17 @@ class VocabularyCardBuildTests(unittest.TestCase):
             selection.write_text(
                 json.dumps(
                     {
+                        "vocabulary_card_review_schema_version": 3,
                         "vocabulary_card_glosses": {
                             "llm": {
                                 "meaning_en": "Large language model.",
                                 "meaning_zh": "大语言模型。",
-                                "sense_key": "agent-proposed-llm-sense",
+                                "sense_key": "large-language-model",
+                                "evidence": {
+                                    "kind": "corpus_acronym_expansion",
+                                    "value": "large language model",
+                                },
+                                "context_rationale": "The corpus explicitly expands LLM.",
                             }
                         }
                     }
@@ -455,6 +551,161 @@ class VocabularyCardBuildTests(unittest.TestCase):
             self.assertEqual(cards["llm"]["meaning_origin"], "agent-contextual")
             self.assertEqual(cards["llm"]["sense_key"], "large-language-model")
             self.assertEqual(cards["alpha"]["meaning_origin"], "ecdict")
+
+    def test_isolated_all_caps_heading_does_not_trigger_acronym_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "vocabulary-map.jsonl",
+                [
+                    {
+                        "lemma": "result",
+                        "part_of_speech": "noun",
+                        "surface_forms": [
+                            {"form": "results", "count": 1222},
+                            {"form": "result", "count": 274},
+                            {"form": "RESULTS", "count": 10},
+                        ],
+                        "representative_sentences": [],
+                    }
+                ],
+            )
+            write_jsonl(analysis / "terminology-candidates.jsonl", [])
+            (analysis / "orthography-review-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "reviewed_candidate_count": 0,
+                        "replacement_count": 0,
+                        "drop_count": 0,
+                        "explicit_keep_count": 0,
+                        "unchanged_candidate_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "corpus-stats.json").write_text(
+                json.dumps({"orthography_review_applied": True}), encoding="utf-8"
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "lemma": "result",
+                        "part_of_speech": "n.",
+                        "meaning_en": "an outcome",
+                        "meaning_zh": "结果",
+                    }
+                )
+
+            result = prepare_review_input(workspace, dictionary)
+            self.assertEqual(result["candidate_count"], 0)
+
+    def test_conflicting_dictionary_acronym_meaning_cannot_pass_finalization(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "papers.jsonl",
+                [{"openalex_id": "W1", "title": "LLM research", "doi": "10.1000/llm"}],
+            )
+            write_jsonl(
+                analysis / "vocabulary-map.jsonl",
+                [
+                    {
+                        "lemma": "llm",
+                        "part_of_speech": "noun",
+                        "surface_forms": [{"form": "LLM", "count": 5}],
+                        "representative_sentences": [
+                            {
+                                "openalex_id": "W1",
+                                "sentence": "Large language models (LLMs) generate text.",
+                            }
+                        ],
+                    }
+                ],
+            )
+            write_jsonl(
+                analysis / "terminology-candidates.jsonl",
+                [{"term": "large language model", "acronyms": ["LLM"]}],
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "lemma": "llm",
+                        "part_of_speech": "",
+                        "meaning_en": "n an advanced law degree",
+                        "meaning_zh": "abbr. 法学硕士；法律硕士",
+                    }
+                )
+            selection = analysis / "domain-review-selection.json"
+            selection.write_text(
+                json.dumps(
+                    {
+                        "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_glosses": {
+                            "llm": {
+                                "meaning_en": "large language model",
+                                "meaning_zh": "abbr. 法学硕士；法律硕士",
+                                "sense_key": "large-language-model",
+                                "evidence": {
+                                    "kind": "corpus_acronym_expansion",
+                                    "value": "large language model",
+                                },
+                                "context_rationale": "The corpus expands LLM.",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "conflicts with the corpus"):
+                build_catalog(workspace, selection, dictionary)
+
+    def test_legacy_catalog_summary_requires_semantic_rereview(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "vocabulary-card-catalog.jsonl",
+                [
+                    {
+                        "card_id": "word:llm:noun",
+                        "sense_key": "word:llm:noun",
+                        "lemma": "llm",
+                        "meaning_zh": "法学硕士",
+                        "context": "Large language models (LLMs) generate text.",
+                        "source_title": "LLM research",
+                        "source_url": "https://example.invalid/llm",
+                    }
+                ],
+            )
+            (analysis / "vocabulary-card-summary.json").write_text(
+                json.dumps({"schema_version": 1, "card_count": 1}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "semantic re-review"):
+                load_catalog(workspace)
 
     def test_literal_escaped_newlines_are_not_written_to_dictionary_glosses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -497,7 +748,15 @@ class VocabularyCardBuildTests(unittest.TestCase):
                     }
                 )
             selection = analysis / "domain-review-selection.json"
-            selection.write_text(json.dumps({"vocabulary_card_glosses": {}}), encoding="utf-8")
+            selection.write_text(
+                json.dumps(
+                    {
+                        "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_glosses": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             build_catalog(workspace, selection, dictionary)
             stored = json.loads(

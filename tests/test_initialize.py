@@ -144,16 +144,16 @@ class InitializationControllerTests(unittest.TestCase):
             controller = InitializationController(controller_args(root))
             controller.workspace.mkdir(parents=True)
             terminology = controller.workspace / "terminology-review-input.json"
-            vocabulary_cards = controller.workspace / "vocabulary-card-review-input.json"
+            vocabulary_batch = controller.workspace / "vocabulary-card-review-batch.json"
             terminology.write_text("{}\n", encoding="utf-8")
-            vocabulary_cards.write_text("{}\n", encoding="utf-8")
+            vocabulary_batch.write_text("{}\n", encoding="utf-8")
             selection = controller.workspace / "selection.json"
 
             payload = controller._host_action(
                 "review_vocabulary_cards_and_terminology",
                 input_paths={
                     "terminology": terminology,
-                    "vocabulary_cards": vocabulary_cards,
+                    "vocabulary_card_review_batch": vocabulary_batch,
                 },
                 output_path=selection,
                 checkpoint="learning_asset_review_needed",
@@ -164,7 +164,7 @@ class InitializationControllerTests(unittest.TestCase):
                 payload["next_action"]["inputs"],
                 {
                     "terminology": str(terminology),
-                    "vocabulary_cards": str(vocabulary_cards),
+                    "vocabulary_card_review_batch": str(vocabulary_batch),
                 },
             )
             self.assertEqual(payload["next_action"]["output"], str(selection))

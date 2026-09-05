@@ -175,13 +175,30 @@ the current task must continue:
 - diagnose a real failure from preserved artifacts and resume the same
   operation.
 
+For a vocabulary-card review action, the review records are always in the
+input file's top-level `.candidates` array; `vocabulary_card_review_batch` is
+only the controller's label for that input path, not a JSON field. Check
+`.candidate_count == (.candidates | length)` before reviewing. Work through a
+large review only through the bounded batch supplied on each controller resume,
+preserving prior reviewed entries, and make a corpus-grounded sense decision
+for each item. Never generate the review by taking the first dictionary meaning
+or by filling fields merely to make finalization continue. Every output gloss must
+cite exact candidate evidence and include a candidate-specific rationale. A
+unique `acronym_expansion` controls the exact English meaning and suggested
+`sense_key`; it overrides a conflicting dictionary abbreviation. If exhaustive
+semantic review is not complete, do not write a nominally complete selection
+and do not resume finalization.
+
 An internal command exit, a candidate count, downloaded PDFs, completed corpus
 analysis, a vocabulary file, or a terminology count is never a reason to stop.
 The controller must finish the standalone exhaustive orthography review before
 preparing any vocabulary-card gloss candidates. It then runs
 `finalize_domain_assets.py`, which loads the already finalized vocabulary and
-finalizes its cards together with terminology. It may start calibration only
-after that invocation succeeds.
+finalizes its cards together with terminology. `ready_for_calibration` is a
+pipeline-readiness signal, not an independent claim that arbitrary prose is
+correct; it is valid only after the vocabulary-card semantic review contract
+and the asset loaders both succeed. It may start calibration only after that
+invocation succeeds.
 The preparation operation may hand control to the user only when the controller
 returns `terminal: true`, `checkpoint: calibration_service_ready`, and a live
 URL whose service record says both `vocabulary_ready` and

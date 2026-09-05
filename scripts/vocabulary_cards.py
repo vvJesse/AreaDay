@@ -24,9 +24,12 @@ from orthography_contract import orthography_summary_is_complete
 CATALOG_NAME = "vocabulary-card-catalog.jsonl"
 SUMMARY_NAME = "vocabulary-card-summary.json"
 REVIEW_INPUT_NAME = "vocabulary-card-review-input.json"
+REVIEW_BATCH_DIRECTORY = "vocabulary-card-review-batches"
 GLOSS_DATA_NAME = "ecdict_glosses.tsv.gz"
 WORD_PATTERN = re.compile(r"^[a-z][a-z0-9'-]*$")
 ACRONYM_SURFACE_PATTERN = re.compile(r"^[A-Z][A-Z0-9-]{1,11}s?$")
+REVIEW_SCHEMA_VERSION = 3
+REVIEW_BATCH_SIZE = 40
 
 
 def _normalize(value: object) -> str:
@@ -181,11 +184,30 @@ def _collapse_plural_expansions(values: Iterable[str]) -> list[str]:
 
 
 def _has_acronym_surface(word: dict[str, Any]) -> bool:
-    return any(
-        ACRONYM_SURFACE_PATTERN.fullmatch(str(item.get("form") or "").strip())
-        for item in word.get("surface_forms") or []
-        if isinstance(item, dict)
-    )
+    """Return true only when acronym casing dominates observed corpus usage.
+
+    PDF section headings commonly contribute isolated all-caps forms such as
+    ``RESULTS`` and ``INTRODUCTION``.  The old any-match rule treated those as
+    acronyms and needlessly sent hundreds of ordinary words to contextual
+    review.  A real acronym normally keeps its casing across occurrences.
+    """
+
+    uppercase_count = 0
+    observed_count = 0
+    for item in word.get("surface_forms") or []:
+        if not isinstance(item, dict):
+            continue
+        form = str(item.get("form") or "").strip()
+        try:
+            count = int(item.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count <= 0:
+            continue
+        observed_count += count
+        if ACRONYM_SURFACE_PATTERN.fullmatch(form):
+            uppercase_count += count
+    return uppercase_count >= 2 and uppercase_count / max(observed_count, 1) >= 0.5
 
 
 def _dictionary_marks_abbreviation(candidates: list[DictionaryGloss]) -> bool:
@@ -238,12 +260,42 @@ def _suggested_sense_key(expansions: list[str]) -> str:
     return re.sub(r"[^a-z0-9]+", "-", expansions[0].casefold()).strip("-")
 
 
-def _review_glosses(selection: dict[str, Any]) -> dict[str, dict[str, str]]:
+def _normalized_semantic_phrase(value: object) -> str:
+    words = re.findall(r"[a-z0-9]+", str(value or "").casefold())
+    if words and words[-1].endswith("s") and len(words[-1]) > 1:
+        words[-1] = words[-1][:-1]
+    return " ".join(words)
+
+
+def _dictionary_matches_expansion(candidate: dict[str, str], expansion: str) -> bool:
+    expected = set(_normalized_semantic_phrase(expansion).split())
+    actual = set(_normalized_semantic_phrase(candidate.get("meaning_en")).split())
+    return bool(expected) and expected <= actual
+
+
+def _review_glosses(
+    selection: dict[str, Any], candidates: list[dict[str, Any]]
+) -> dict[str, dict[str, str]]:
+    if selection.get("vocabulary_card_review_schema_version") != REVIEW_SCHEMA_VERSION:
+        raise ValueError(
+            "Learning-asset review does not declare the current vocabulary-card "
+            f"review schema version {REVIEW_SCHEMA_VERSION}"
+        )
     raw = selection.get("vocabulary_card_glosses", {})
-    if raw is None:
-        return {}
     if not isinstance(raw, dict):
         raise ValueError("vocabulary_card_glosses must be an object")
+    candidate_by_lemma = {
+        _normalize(item.get("observed_lemma")): item for item in candidates
+    }
+    supplied_lemmas = {_normalize(lemma) for lemma in raw}
+    expected_lemmas = set(candidate_by_lemma)
+    missing = sorted(expected_lemmas - supplied_lemmas)
+    unknown = sorted(supplied_lemmas - expected_lemmas)
+    if missing or unknown or len(raw) != len(expected_lemmas):
+        raise ValueError(
+            "vocabulary_card_glosses must contain exactly every .candidates lemma; "
+            f"missing={missing[:8]}, unknown={unknown[:8]}"
+        )
     result: dict[str, dict[str, str]] = {}
     for raw_lemma, raw_gloss in raw.items():
         lemma = _normalize(raw_lemma)
@@ -255,12 +307,105 @@ def _review_glosses(selection: dict[str, Any]) -> dict[str, dict[str, str]]:
         sense_key = _normalize(raw_gloss.get("sense_key"))
         if not sense_key:
             raise ValueError(f"Vocabulary card gloss has no stable sense key: {lemma}")
+        evidence = raw_gloss.get("evidence")
+        if not isinstance(evidence, dict):
+            raise ValueError(f"Vocabulary card gloss has no review evidence: {lemma}")
+        evidence_kind = str(evidence.get("kind") or "").strip()
+        evidence_value = str(evidence.get("value") or "").strip()
+        rationale = str(raw_gloss.get("context_rationale") or "").strip()
+        if not rationale:
+            raise ValueError(f"Vocabulary card gloss has no context rationale: {lemma}")
+
+        candidate = candidate_by_lemma[lemma]
+        expansions = [
+            str(value).strip()
+            for value in candidate.get("acronym_expansions") or []
+            if str(value).strip()
+        ]
+        sentences = {
+            str(item.get("sentence") or "").strip()
+            for item in candidate.get("representative_sentences") or []
+            if isinstance(item, dict) and str(item.get("sentence") or "").strip()
+        }
+        dictionary_candidates = [
+            item
+            for item in candidate.get("dictionary_candidates") or []
+            if isinstance(item, dict)
+        ]
+        if len(expansions) == 1:
+            expansion = expansions[0]
+            if evidence_kind != "corpus_acronym_expansion" or evidence_value != expansion:
+                raise ValueError(
+                    f"Vocabulary card must cite its unique corpus acronym expansion: {lemma}"
+                )
+            expected_sense_key = str(candidate.get("suggested_sense_key") or "").strip()
+            if sense_key != _normalize(expected_sense_key):
+                raise ValueError(
+                    f"Vocabulary card sense_key conflicts with corpus acronym expansion: {lemma}"
+                )
+            meaning_en = _compact_gloss(raw_gloss.get("meaning_en"))
+            if _normalized_semantic_phrase(meaning_en) != _normalized_semantic_phrase(expansion):
+                raise ValueError(
+                    f"Vocabulary card English meaning conflicts with corpus acronym expansion: {lemma}"
+                )
+            for dictionary_candidate in dictionary_candidates:
+                dictionary_zh = _compact_gloss(dictionary_candidate.get("meaning_zh"))
+                if (
+                    dictionary_zh
+                    and meaning_zh == dictionary_zh
+                    and not _dictionary_matches_expansion(dictionary_candidate, expansion)
+                ):
+                    raise ValueError(
+                        f"Vocabulary card copied a dictionary meaning that conflicts with "
+                        f"the corpus acronym expansion: {lemma}"
+                    )
+        elif evidence_kind == "representative_sentence":
+            if evidence_value not in sentences:
+                raise ValueError(
+                    f"Vocabulary card evidence is not an exact representative sentence: {lemma}"
+                )
+        elif evidence_kind == "dictionary_candidate":
+            dictionary_evidence = {
+                value
+                for item in dictionary_candidates
+                for value in (
+                    _compact_gloss(item.get("meaning_en")),
+                    _compact_gloss(item.get("meaning_zh")),
+                )
+                if value
+            }
+            if evidence_value not in dictionary_evidence:
+                raise ValueError(
+                    f"Vocabulary card evidence is not an exact dictionary candidate: {lemma}"
+                )
+        else:
+            raise ValueError(f"Vocabulary card has unsupported review evidence: {lemma}")
         result[lemma] = {
             "meaning_en": _compact_gloss(raw_gloss.get("meaning_en")),
             "meaning_zh": meaning_zh,
             "sense_key": sense_key,
         }
     return result
+
+
+def validate_review_batch(
+    selection: dict[str, Any], candidates: list[dict[str, Any]]
+) -> None:
+    """Validate one completed bounded batch while ignoring preserved batches."""
+
+    raw = selection.get("vocabulary_card_glosses")
+    if not isinstance(raw, dict):
+        raise ValueError("vocabulary_card_glosses must be an object")
+    batch_lemmas = {
+        _normalize(candidate.get("observed_lemma")) for candidate in candidates
+    }
+    subset = {
+        **selection,
+        "vocabulary_card_glosses": {
+            lemma: gloss for lemma, gloss in raw.items() if _normalize(lemma) in batch_lemmas
+        },
+    }
+    _review_glosses(subset, candidates)
 
 
 def _paper_index(workspace: Path) -> dict[str, dict[str, Any]]:
@@ -331,30 +476,83 @@ def prepare_review_input(workspace: Path, dictionary_path: Path) -> dict[str, An
                 ),
             }
         )
-    payload = {
-        "schema_version": 2,
-        "instruction": (
-            "For every candidate, choose the meaning used in this research corpus, grounded "
-            "in its representative sentences and acronym expansions. Dictionary candidates "
-            "are suggestions, never authority for an acronym or context-sensitive word. "
-            "Write a concise Chinese explanation, an English explanation when useful, and a "
-            "stable semantic sense_key that distinguishes different meanings of the same "
-            "spelling across domains. Prefer suggested_sense_key when it matches the evidence. "
-            "Every candidate already passed orthography review; keep its canonical lemma."
-        ),
-        "output_schema": {
-            "vocabulary_card_glosses": {
-                "exact observed_lemma": {
-                    "meaning_en": "concise contextual English explanation or empty string",
-                    "meaning_zh": "concise contextual Chinese explanation",
-                    "sense_key": "stable semantic identifier",
-                }
+    instruction = (
+        "The review array is the top-level .candidates field (not .vocabulary_cards). "
+        "First verify that its length equals candidate_count. Review every candidate in "
+        "this bounded batch from its corpus evidence; never bulk-fill meanings from the "
+        "first dictionary entry. Dictionary candidates are suggestions, never authority "
+        "for an acronym or context-sensitive word. Add exactly one keyed entry for every "
+        "observed_lemma in this batch. Preserve entries from earlier controller-supplied "
+        "batches, but do not add unreviewed lemmas. Cite the exact evidence used and briefly "
+        "state why it supports the selected sense. When there is one "
+        "acronym_expansion, use it as the evidence and exact English meaning, and use "
+        "suggested_sense_key exactly. Every candidate already passed orthography review; "
+        "keep its canonical lemma."
+    )
+    output_schema = {
+        "vocabulary_card_review_schema_version": REVIEW_SCHEMA_VERSION,
+        "vocabulary_card_glosses": {
+            "exact observed_lemma": {
+                "meaning_en": "concise contextual English explanation or empty string",
+                "meaning_zh": "concise contextual Chinese explanation",
+                "sense_key": "stable semantic identifier",
+                "evidence": {
+                    "kind": (
+                        "corpus_acronym_expansion, representative_sentence, "
+                        "or dictionary_candidate"
+                    ),
+                    "value": "exact value copied from that candidate's evidence",
+                },
+                "context_rationale": "brief candidate-specific sense decision",
             }
         },
+    }
+    batch_count = max(1, (len(candidates) + REVIEW_BATCH_SIZE - 1) // REVIEW_BATCH_SIZE)
+    batch_directory = analysis / REVIEW_BATCH_DIRECTORY
+    batch_directory.mkdir(parents=True, exist_ok=True)
+    batches = []
+    for batch_offset in range(batch_count):
+        batch_candidates = candidates[
+            batch_offset * REVIEW_BATCH_SIZE : (batch_offset + 1) * REVIEW_BATCH_SIZE
+        ]
+        batch_path = batch_directory / f"batch-{batch_offset + 1:03d}.json"
+        write_json(
+            batch_path,
+            {
+                "schema_version": REVIEW_SCHEMA_VERSION,
+                "batch_index": batch_offset + 1,
+                "batch_count": batch_count,
+                "candidate_count": len(batch_candidates),
+                "overall_candidate_count": len(candidates),
+                "instruction": instruction,
+                "output_schema": output_schema,
+                "candidates": batch_candidates,
+            },
+        )
+        batches.append(
+            {
+                "batch_index": batch_offset + 1,
+                "candidate_count": len(batch_candidates),
+                "path": str(batch_path),
+                "lemmas": [item["observed_lemma"] for item in batch_candidates],
+            }
+        )
+    payload = {
+        "schema_version": REVIEW_SCHEMA_VERSION,
+        "candidate_count": len(candidates),
+        "batch_size": REVIEW_BATCH_SIZE,
+        "batch_count": batch_count,
+        "instruction": instruction,
+        "output_schema": output_schema,
+        "batches": batches,
         "candidates": candidates,
     }
     write_json(analysis / REVIEW_INPUT_NAME, payload)
-    return {"candidate_count": len(candidates), "path": str(analysis / REVIEW_INPUT_NAME)}
+    return {
+        "candidate_count": len(candidates),
+        "batch_count": batch_count,
+        "path": str(analysis / REVIEW_INPUT_NAME),
+    }
 
 
 def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) -> dict[str, int]:
@@ -366,10 +564,32 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
     selection = read_json(selection_path.expanduser().resolve())
     if not isinstance(selection, dict):
         raise ValueError("Learning-asset review must be an object")
-    reviewed = _review_glosses(selection)
     papers = _paper_index(resolved)
     vocabulary = _load_jsonl(analysis / "vocabulary-map.jsonl")
-    acronym_map = _acronym_expansions(analysis / "first-terminology-map.jsonl")
+    # Acronym evidence belongs to the corpus, not to the separate decision about
+    # whether an expansion is retained as a standalone terminology card.
+    acronym_map = _acronym_expansions(analysis / "terminology-candidates.jsonl")
+    review_candidates = []
+    for word in vocabulary:
+        lemma = _normalize(word.get("lemma"))
+        if not lemma:
+            continue
+        review_reasons = _context_review_reasons(glossary, word, acronym_map)
+        if not review_reasons:
+            continue
+        expansions = acronym_map.get(lemma, [])
+        review_candidates.append(
+            {
+                "observed_lemma": lemma,
+                "representative_sentences": word.get("representative_sentences") or [],
+                "acronym_expansions": expansions,
+                "suggested_sense_key": _suggested_sense_key(expansions),
+                "dictionary_candidates": _dictionary_candidates_payload(
+                    glossary.get(lemma, [])
+                ),
+            }
+        )
+    reviewed = _review_glosses(selection, review_candidates)
     cards: list[dict[str, Any]] = []
     ecdict_count = 0
     agent_count = 0
@@ -425,19 +645,24 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
     cards.sort(key=lambda item: (-item["document_count"], -item["total_count"], item["lemma"]))
     write_jsonl(analysis / CATALOG_NAME, cards)
     result = {
-        "schema_version": 1,
+        "schema_version": REVIEW_SCHEMA_VERSION,
         "generated_at": utc_now(),
+        "semantic_review_contract_version": REVIEW_SCHEMA_VERSION,
         "card_count": len(cards),
         "ecdict_count": ecdict_count,
         "agent_count": agent_count,
         "english_count": english_count,
     }
     write_json(analysis / SUMMARY_NAME, result)
-    return {key: int(value) for key, value in result.items() if key.endswith("_count")}
+    return {
+        "semantic_review_contract_version": REVIEW_SCHEMA_VERSION,
+        **{key: int(value) for key, value in result.items() if key.endswith("_count")},
+    }
 
 
 def load_catalog(workspace: Path) -> list[dict[str, Any]]:
-    path = workspace.expanduser().resolve() / "analysis" / CATALOG_NAME
+    analysis = workspace.expanduser().resolve() / "analysis"
+    path = analysis / CATALOG_NAME
     cards = _load_jsonl(path)
     identifiers = [str(card.get("card_id") or "") for card in cards]
     if not cards or len(identifiers) != len(set(identifiers)):
@@ -446,4 +671,16 @@ def load_catalog(workspace: Path) -> list[dict[str, Any]]:
         required = ("card_id", "sense_key", "lemma", "meaning_zh", "context", "source_title", "source_url")
         if not all(str(card.get(field) or "").strip() for field in required):
             raise ValueError(f"AreaDay vocabulary card is incomplete: {card.get('lemma')}")
+    summary_path = analysis / SUMMARY_NAME
+    if summary_path.is_file():
+        summary = read_json(summary_path)
+        if (
+            not isinstance(summary, dict)
+            or summary.get("semantic_review_contract_version")
+            != REVIEW_SCHEMA_VERSION
+            or summary.get("card_count") != len(cards)
+        ):
+            raise ValueError(
+                f"AreaDay vocabulary cards require semantic re-review: {analysis.parent}"
+            )
     return cards

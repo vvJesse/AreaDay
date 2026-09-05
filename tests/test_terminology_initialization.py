@@ -217,11 +217,17 @@ class TerminologyInitializationTests(unittest.TestCase):
                             "sense_key": "robust-analysis",
                         }
                     },
+                    "vocabulary_card_review_schema_version": 3,
                     "vocabulary_card_glosses": {
                         lemma: {
                             "meaning_en": f"Synthetic definition for {lemma}.",
                             "meaning_zh": f"{lemma} 的合成中文解释。",
                             "sense_key": f"synthetic-{lemma}",
+                            "evidence": {
+                                "kind": "representative_sentence",
+                                "value": f"Example for {lemma}.",
+                            },
+                            "context_rationale": f"The example explicitly uses {lemma}.",
                         }
                         for lemma in (f"model{index}" for index in range(30))
                     },

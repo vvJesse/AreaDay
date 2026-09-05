@@ -32,7 +32,12 @@ from domain_registry import (
     default_registry_path,
     validate_initialized_workspace,
 )
-from vocabulary_cards import GLOSS_DATA_NAME, prepare_review_input
+from vocabulary_cards import (
+    GLOSS_DATA_NAME,
+    REVIEW_SCHEMA_VERSION,
+    prepare_review_input,
+    validate_review_batch,
+)
 from open_workbench import (
     HOST,
     ensure_workbench,
@@ -348,33 +353,133 @@ class InitializationController:
         card_review_input = self.workspace / "analysis" / "vocabulary-card-review-input.json"
         combined_selection = self.workspace / "analysis" / "domain-review-selection.json"
         assets_summary = self.workspace / "analysis" / "domain-assets-summary.json"
-        if not assets_summary.is_file():
+        assets_are_current = False
+        if assets_summary.is_file():
+            existing_summary = _read_json_object(assets_summary)
+            cards_summary = existing_summary.get("vocabulary_cards")
+            assets_are_current = (
+                existing_summary.get("ready_for_calibration") is True
+                and isinstance(cards_summary, dict)
+                and cards_summary.get("semantic_review_contract_version")
+                == REVIEW_SCHEMA_VERSION
+            )
+        if not assets_are_current:
             prepare_review_input(
                 self.workspace,
                 Path(__file__).resolve().parents[1] / "app" / "data" / GLOSS_DATA_NAME,
             )
 
-        if not assets_summary.is_file():
-            if not combined_selection.is_file():
+        if not assets_are_current:
+            card_review = _read_json_object(card_review_input)
+            expected_lemmas = {
+                str(candidate.get("observed_lemma") or "").strip().casefold()
+                for candidate in card_review.get("candidates") or []
+                if isinstance(candidate, dict)
+                and str(candidate.get("observed_lemma") or "").strip()
+            }
+            selection_is_current = False
+            supplied_lemmas: set[str] = set()
+            if combined_selection.is_file():
+                existing_selection = _read_json_object(combined_selection)
+                selection_is_current = (
+                    existing_selection.get("schema_version") == 1
+                    and existing_selection.get("reviewer") == "current-host-agent"
+                    and isinstance(existing_selection.get("terminology"), dict)
+                    and isinstance(
+                        existing_selection.get("terminology_explanations"), dict
+                    )
+                    and existing_selection.get(
+                        "vocabulary_card_review_schema_version"
+                    )
+                    == REVIEW_SCHEMA_VERSION
+                )
+                raw_glosses = existing_selection.get("vocabulary_card_glosses")
+                if selection_is_current and isinstance(raw_glosses, dict):
+                    supplied_lemmas = {
+                        str(lemma).strip().casefold() for lemma in raw_glosses
+                    }
+                    if supplied_lemmas - expected_lemmas:
+                        selection_is_current = False
+                        supplied_lemmas = set()
+            missing_lemmas = expected_lemmas - supplied_lemmas
+            batches = card_review.get("batches")
+            if not isinstance(batches, list) or not batches:
+                raise InitializationError("Vocabulary-card review batches are missing")
+            invalid_batch = None
+            if selection_is_current:
+                for batch in batches:
+                    if not isinstance(batch, dict):
+                        continue
+                    batch_lemmas = {
+                        str(lemma).strip().casefold()
+                        for lemma in batch.get("lemmas") or []
+                    }
+                    if not batch_lemmas <= supplied_lemmas:
+                        continue
+                    batch_payload = _read_json_object(Path(str(batch.get("path") or "")))
+                    try:
+                        validate_review_batch(
+                            existing_selection,
+                            [
+                                candidate
+                                for candidate in batch_payload.get("candidates") or []
+                                if isinstance(candidate, dict)
+                            ],
+                        )
+                    except ValueError:
+                        invalid_batch = batch
+                        break
+            next_batch = invalid_batch or next(
+                (
+                    batch
+                    for batch in batches
+                    if isinstance(batch, dict)
+                    and (
+                        not selection_is_current
+                        or any(
+                            str(lemma).strip().casefold() in missing_lemmas
+                            for lemma in batch.get("lemmas") or []
+                        )
+                    )
+                ),
+                None,
+            )
+            if not selection_is_current or missing_lemmas or invalid_batch is not None:
+                if not isinstance(next_batch, dict):
+                    raise InitializationError(
+                        "Vocabulary-card review coverage and batch manifest disagree"
+                    )
+                batch_path = Path(str(next_batch.get("path") or ""))
+                action_inputs = {"vocabulary_card_review_batch": batch_path}
+                if selection_is_current:
+                    action_inputs["existing_selection"] = combined_selection
+                else:
+                    action_inputs["terminology"] = terminology_input
+                batch_index = int(next_batch.get("batch_index") or 0)
+                batch_count = int(card_review.get("batch_count") or 0)
                 self._host_action(
                     "review_vocabulary_cards_and_terminology",
-                    input_paths={
-                        "terminology": terminology_input,
-                        "vocabulary_cards": card_review_input,
-                    },
+                    input_paths=action_inputs,
                     output_path=combined_selection,
                     checkpoint="learning_asset_review_needed",
                     instructions=(
-                        "Review the vocabulary-card gloss candidates and terminology "
-                        "candidates together. Write one schema_version=1 review with "
-                        "reviewer=current-host-agent, terminology, "
-                        "terminology_explanations, vocabulary_card_glosses, "
-                        "and review_summary. vocabulary_card_glosses must provide the "
-                        "contextual Chinese meaning and a stable semantic sense_key for every "
-                        "vocabulary_cards candidate, keyed by its already finalized canonical "
-                        "lemma; English is optional. Treat dictionary meanings as suggestions "
-                        "and use corpus acronym expansions and representative sentences as "
-                        "the authority. Then immediately resume."
+                        f"Review vocabulary-card batch {batch_index} of {batch_count}. "
+                        + (
+                            "Also review the terminology input and create one schema_version=1 "
+                            "selection with reviewer=current-host-agent, terminology, "
+                            "terminology_explanations, vocabulary_card_glosses, "
+                            if not selection_is_current
+                            else "Read the existing selection, preserve all terminology and "
+                            "other vocabulary_card_glosses, and add or correct this batch with "
+                        )
+                        + f"vocabulary_card_review_schema_version={REVIEW_SCHEMA_VERSION}, "
+                        "and review_summary. The batch records are in top-level .candidates; "
+                        "verify .candidate_count, review each item semantically, and include its "
+                        "exact evidence plus candidate-specific context_rationale. Never copy "
+                        "the first dictionary entry across the batch. Corpus acronym expansions "
+                        "and representative sentences control conflicting senses. Write the "
+                        "updated selection and immediately resume; the controller will supply "
+                        "the next bounded batch until exact coverage is complete."
                     ),
                 )
                 raise StopIteration
@@ -390,7 +495,13 @@ class InitializationController:
                 "finalizing_vocabulary_and_terminology",
             )
         summary = _read_json_object(assets_summary)
-        if summary.get("ready_for_calibration") is not True:
+        cards_summary = summary.get("vocabulary_cards")
+        if (
+            summary.get("ready_for_calibration") is not True
+            or not isinstance(cards_summary, dict)
+            or cards_summary.get("semantic_review_contract_version")
+            != REVIEW_SCHEMA_VERSION
+        ):
             raise InitializationError(
                 "Vocabulary and terminology finalization did not complete"
             )

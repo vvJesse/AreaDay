@@ -189,17 +189,26 @@ supplied `resume` command in this same task. The three possible host actions are
    extraction noise in `lemma_drops`. Every queued lemma must appear in exactly
    one of those three fields. The controller applies this review and writes the
    finalized vocabulary before continuing.
-3. Learning-asset review: review terminology candidates and only the
-   vocabulary-card gloss misses from the finalized vocabulary. Keep stable
+3. Learning-asset review: review terminology candidates and every unresolved or
+   context-sensitive vocabulary-card candidate from the finalized vocabulary.
+   The vocabulary-card input array is the top-level `.candidates` field; there
+   is no `.vocabulary_cards` field. Verify its length against `candidate_count`
+   before reviewing it. The controller supplies bounded batches sequentially;
+   preserve prior reviewed entries and add only the supplied batch. Keep stable
    shared multiword concepts supported by a representative source-paper
    sentence, supplying complete English meaning, Chinese meaning, concept role,
    and stable sense key. Supply a concise Chinese gloss keyed by the already
-   finalized canonical lemma for every vocabulary-card miss; English is optional.
+   finalized canonical lemma for every vocabulary-card candidate, together with
+   exact cited evidence and a candidate-specific context rationale. Never
+   bulk-fill review output from the first dictionary entry. For a unique corpus
+   acronym expansion, use that expansion as the exact English meaning and its
+   suggested sense key; a conflicting dictionary abbreviation must be rejected.
 
 Every review JSON uses `schema_version: 1` and
 `reviewer: current-host-agent`. After orthography finalization, the bundled
-dictionary supplies unambiguous meanings only for the resulting canonical
-vocabulary. The controller then runs `finalize_domain_assets.py` exactly once
+dictionary supplies only low-risk meanings for resulting canonical vocabulary;
+its entries remain suggestions wherever corpus evidence triggers review. The
+controller then runs `finalize_domain_assets.py` exactly once
 to finalize and load the stable bilingual vocabulary-card catalog and
 terminology, write `domain-assets-summary.json`, and return success only when
 all assets are ready. Only then may it start the calibration service.
