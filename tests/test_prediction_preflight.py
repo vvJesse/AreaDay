@@ -72,7 +72,7 @@ class PredictionPreflightTests(unittest.TestCase):
         self.assertEqual(result, {"status": "prediction_ready"})
         self.assertEqual(client.calls, [("preflight", {"license": envelope})])
 
-    def test_service_outage_is_a_continue_or_wait_choice_not_a_license_error(self) -> None:
+    def test_service_outage_is_not_a_license_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             license_path = Path(temporary) / "license.rrlicense"
             license_path.write_text(json.dumps({"format": "test"}), encoding="utf-8")
@@ -94,6 +94,22 @@ class PredictionPreflightTests(unittest.TestCase):
         self.assertEqual(result["status"], "prediction_service_unavailable")
         self.assertEqual(result["code"], "calibration_service_unavailable")
         self.assertNotIn("license_required", result["status"])
+
+
+class SkillLicenseRoutingTests(unittest.TestCase):
+    def test_normal_initialization_uses_only_the_offline_license_check(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        workflow = (ROOT / "references" / "full-workflow.md").read_text(
+            encoding="utf-8"
+        )
+        license_reference = (
+            ROOT / "references" / "license-activation.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("scripts/researchramp_license.py status", skill)
+        self.assertNotIn("scripts/prediction_preflight.py", skill)
+        self.assertNotIn("prediction_preflight.py", workflow)
+        self.assertNotIn("scripts/prediction_preflight.py", license_reference)
 
 
 if __name__ == "__main__":

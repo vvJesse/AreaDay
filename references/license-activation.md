@@ -1,5 +1,5 @@
 ---
-description: "Show the device code, activate or inspect an AreaDay license, or preflight personal-vocabulary prediction access."
+description: "Show the device code, activate AreaDay, install a recovery license, or inspect the installed license."
 ---
 
 # AreaDay license activation
@@ -18,7 +18,6 @@ Use one command from the Skill directory:
 .venv/bin/python scripts/researchramp_license.py activate <activation-key>
 .venv/bin/python scripts/researchramp_license.py install <absolute-rrlicense-path>
 .venv/bin/python scripts/researchramp_license.py status
-.venv/bin/python scripts/prediction_preflight.py
 ```
 
 On Windows, use `.venv\Scripts\python.exe` instead. For `activate`, use only the
@@ -70,18 +69,11 @@ sends PDFs, extracted text, sentences, source papers, URLs, or local paths.
 reached; it does not mean the installed license is invalid. A previously
 completed local result remains viewable while the service is unavailable.
 
-Use `prediction_preflight.py` at the beginning of a request to establish, build,
-or rebuild a personal vocabulary. It sends only the installed license envelope
-and returns one of these stable results:
-
-- `prediction_ready`: the local license and server authorization both passed.
-- `license_required`: stop before profile review or paper collection and offer
-  the matching activation action.
-- `prediction_service_unavailable`: explain that paper collection may continue,
-  but calibration and the personal vocabulary cannot finish while the service
-  remains unavailable; ask whether the user wants to continue or postpone.
-- `prediction_service_error`: stop and report the exact code without calling it
-  a bad license.
+The normal license precheck for initialization is
+`researchramp_license.py status`. It validates the installed license offline and
+must not contact the prediction service. Do not use prediction-service
+availability to decide whether profile confirmation, paper collection, or local
+corpus preparation may begin.
 
 The four public AreaDay business entrypoints are license
 gated. The familiarity-prediction core is now server-side, so changing the local
