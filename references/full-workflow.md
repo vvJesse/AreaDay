@@ -31,7 +31,7 @@ confirmed profile and workspace
         ↓
 unattended research and host-agent review
         ↓
-vocabulary + terminology finalized together
+vocabulary cards + terminology finalized together
         ↓
 registered library service started and live-verified
         ↓
@@ -181,17 +181,21 @@ supplied `resume` command in this same task. The two possible host actions are:
    incidental keyword matches, off-scope disciplines, comments, replies,
    corrections, withdrawn records, and violations of the confirmed date or
    category boundary. Do not ask the user to screen papers.
-2. Combined domain review: in one JSON, review every queued lemma and every
-   terminology candidate. Correct only confirmed lemma/fused-form errors, drop
+2. Combined domain review: in one JSON, review every queued lemma, every
+   vocabulary-card gloss miss or ambiguity, and every terminology candidate. Correct only confirmed lemma/fused-form errors, drop
    only extraction noise, and keep stable shared multiword concepts supported
    by a representative source-paper sentence. Supply complete English meaning,
    Chinese meaning, concept role, and stable sense key for every selected term.
+   Supply a concise Chinese gloss keyed by the final canonical lemma for every
+   vocabulary-card miss or ambiguity; English is optional.
 
 Every review JSON uses `schema_version: 1` and
 `reviewer: current-host-agent`. After the combined review, the controller runs
-`finalize_domain_assets.py` exactly once. That script finalizes and loads both
-the vocabulary and terminology, writes one `domain-assets-summary.json`, and
-returns success only when both are ready. Only then may the controller start
+`finalize_domain_assets.py` exactly once. That script finalizes and loads the
+vocabulary map, stable bilingual vocabulary-card catalog, and terminology,
+writes one `domain-assets-summary.json`, and returns success only when all are
+ready. The bundled dictionary prepares unambiguous card glosses before this
+review. Only then may the controller start
 the calibration service.
 
 The acquisition algorithm, corpus viability rule, evidence rules, and artifact

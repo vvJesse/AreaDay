@@ -192,8 +192,7 @@ class GlobalLearningStore:
         source_url = source_url.strip()
         evidence_context_id = evidence_context_id.strip()
         if (
-            not meaning_en
-            or not meaning_zh
+            not meaning_zh
             or not context
             or not source_title
             or not source_url

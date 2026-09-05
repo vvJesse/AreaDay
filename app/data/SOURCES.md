@@ -32,9 +32,21 @@ multiple historical upstream sources. ResearchRamp therefore uses only the
 minimal factual labels and retains the ECDICT MIT notice and this provenance
 note in the distribution.
 
+`ecdict_glosses.tsv.gz` is a normalized bilingual lookup asset produced from
+ECDICT's `word`, `pos`, `definition`, and `translation` fields. It keeps only
+dictionary entries with a Chinese translation, and truncates each displayed
+definition or translation to one short sense. AreaDay uses it before
+calibration to prepare local vocabulary cards; the original ECDICT data is not
+queried at runtime and no user vocabulary is sent to a dictionary service.
+
+Full ECDICT CSV source SHA-256:
+`1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf`
+
 Generated asset SHA-256 values:
 
 - `cefr_j_v1_6.tsv.gz`:
   `4b64192f94d96fa75c3848c922ef9eedc8c4720881a043b35fef59d3ce4e5af7`
 - `ecdict_exam_tags.tsv.gz`:
   `7bc1df368c82960cec1ffabae24ae51c7e701154bfbc692b1ba66d8bbfcfb301`
+- `ecdict_glosses.tsv.gz`:
+  `3a8079357d3d2a13b266c7ec1ac48e110785daf2a5c2e2114086b1100888cff0`

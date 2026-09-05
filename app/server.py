@@ -52,7 +52,7 @@ from workbench_protocol import (  # noqa: E402
 
 
 QUESTION_LIMIT = 30
-APP_API_VERSION = 5
+APP_API_VERSION = 6
 CEFR_LEVEL_ORDER = {"A1": 0, "A2": 1, "B1": 2, "B2": 3}
 KNOWN_EXAM_TAGS = {"gk", "cet4", "cet6"}
 EXAM_PROFILE_TAGS = {
@@ -376,6 +376,22 @@ class AppHandler(BaseHTTPRequestHandler):
                     {"count": len(due), "words": due}, domain_id=context.domain_id
                 )
                 return
+            if path == "/api/learning/new-words":
+                context = self._context(parsed)
+                store = self.runtime.require_continuous(context)
+                raw_limit = parse_qs(parsed.query).get("limit", ["5"])[0]
+                try:
+                    limit = int(raw_limit)
+                except (TypeError, ValueError) as error:
+                    raise ValueError("limit must be an integer") from error
+                if not 1 <= limit <= 100:
+                    raise ValueError("limit must be between 1 and 100")
+                cards = store.new_word_candidates(limit=limit)
+                self._send_api_json(
+                    {"count": len(cards), "cards": cards},
+                    domain_id=context.domain_id,
+                )
+                return
             if path == "/api/terms":
                 context = self._context(parsed)
                 store = self.runtime.require_continuous(context)
@@ -513,6 +529,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 )
                 self._send_api_json(
                     {"continuous": store.summary()}, domain_id=context.domain_id
+                )
+                return
+            if path == "/api/learning/new-word-status":
+                store = self.runtime.require_continuous(context)
+                item_id = store.set_new_word_status(
+                    str(body.get("card_id") or ""), str(body.get("status") or "")
+                )
+                self._send_api_json(
+                    {"item_id": item_id, "continuous": store.summary()},
+                    domain_id=context.domain_id,
                 )
                 return
             if path == "/api/review/answer":

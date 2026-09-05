@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from generate_brief import BriefGenerationController  # noqa: E402
 from continuous_state import ContinuousStore  # noqa: E402
+from vocabulary_cards import card_id  # noqa: E402
 
 
 FIXTURE = ROOT / "tests" / "fixtures" / "weekly-brief.json"
@@ -28,6 +29,35 @@ class BriefGenerationControllerTests(unittest.TestCase):
         (analysis / "papers.jsonl").write_text("", encoding="utf-8")
         (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
         (analysis / "terminology-explanations.json").write_text("{}\n", encoding="utf-8")
+        cards = [
+            ("alpha", "A synthetic term used in the Alpha test domain.", "测试领域 Alpha 中使用的合成术语"),
+            ("isolation", "The separation of distinct data spaces.", "不同数据空间彼此分离"),
+            ("provenance", "A verifiable link between content and its source.", "内容及其来源之间可验证的对应关系"),
+        ]
+        (analysis / "vocabulary-card-catalog.jsonl").write_text(
+            "".join(
+                json.dumps(
+                    {
+                        "card_id": card_id(lemma, "noun"),
+                        "sense_key": card_id(lemma, "noun"),
+                        "lemma": lemma,
+                        "part_of_speech": "noun",
+                        "meaning_en": meaning_en,
+                        "meaning_zh": meaning_zh,
+                        "meaning_origin": "agent",
+                        "source_paper_id": "W1",
+                        "source_title": "Synthetic source",
+                        "source_url": "https://example.invalid/synthetic-source",
+                        "context": f"Synthetic context for {lemma}.",
+                        "total_count": 10,
+                        "document_count": 2,
+                        "document_share": 1.0,
+                    }
+                ) + "\n"
+                for lemma, meaning_en, meaning_zh in cards
+            ),
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()

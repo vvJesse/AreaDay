@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from terminology_assets import load_finalized_terminology
+from vocabulary_cards import load_catalog
 from migrate_areaday_data import areaday_data_root
 from remote_calibration import (
     InvalidCalibrationData,
@@ -125,6 +126,7 @@ def _validate_corpus_assets(
         resolved,
         require_review_summary=require_review_summary,
     )
+    load_catalog(resolved)
 
 
 def validate_initialized_workspace(workspace: Path) -> dict[str, Any]:

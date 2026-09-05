@@ -12,6 +12,7 @@ from domain_registry import validate_initialized_workspace
 from finalize_host_review import finalize_review as finalize_terminology
 from researchramp_core import read_json, utc_now, write_json
 from terminology_assets import load_finalized_terminology
+from vocabulary_cards import GLOSS_DATA_NAME, build_catalog
 
 
 def finalize_assets(workspace: Path, selection: Path) -> dict[str, object]:
@@ -24,6 +25,11 @@ def finalize_assets(workspace: Path, selection: Path) -> dict[str, object]:
 
     vocabulary = finalize_vocabulary(resolved, selection)
     terminology = finalize_terminology(resolved, selection)
+    cards = build_catalog(
+        resolved,
+        selection,
+        Path(__file__).resolve().parents[1] / "app" / "data" / GLOSS_DATA_NAME,
+    )
     validate_initialized_workspace(resolved)
     terms, _explanations, _summary = load_finalized_terminology(
         resolved,
@@ -38,6 +44,7 @@ def finalize_assets(workspace: Path, selection: Path) -> dict[str, object]:
             **terminology,
             "loadable_terminology_count": len(terms),
         },
+        "vocabulary_cards": cards,
         "ready_for_calibration": True,
     }
     write_json(resolved / "analysis" / "domain-assets-summary.json", result)

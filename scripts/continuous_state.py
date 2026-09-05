@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import sqlite3
@@ -12,6 +13,7 @@ from urllib.parse import urlparse
 
 from global_learning import GlobalLearningStore, LearningItem
 from terminology_catalog import TerminologyCatalog
+from vocabulary_cards import load_catalog
 
 
 CONTINUOUS_DIR = "continuous"
@@ -132,6 +134,7 @@ class ContinuousStore:
             self.root / "global-learning.sqlite3"
         )
         self._terminology_catalog: TerminologyCatalog | None = None
+        self._vocabulary_catalog: dict[tuple[str, str], dict[str, Any]] | None = None
         self._contextual_glosses: dict[str, Any] | None = None
         self._initialize()
 
@@ -144,6 +147,70 @@ class ContinuousStore:
                 learning_store=self.learning_store,
             )
         return self._terminology_catalog
+
+    def vocabulary_catalog(self) -> dict[tuple[str, str], dict[str, Any]]:
+        """Return immutable pre-calibration card facts keyed by lemma and POS."""
+
+        if self._vocabulary_catalog is None:
+            cards = load_catalog(self.workspace)
+            catalog: dict[tuple[str, str], dict[str, Any]] = {}
+            for raw in cards:
+                lemma = str(raw["lemma"]).strip().casefold()
+                pos = str(raw.get("part_of_speech") or "").strip().casefold()
+                key = (lemma, pos)
+                if key in catalog:
+                    raise ValueError(f"词卡目录包含重复词义：{lemma}")
+                catalog[key] = dict(raw)
+            self._vocabulary_catalog = catalog
+        return self._vocabulary_catalog
+
+    def _catalog_card(self, lemma: str, part_of_speech: str = "") -> dict[str, Any]:
+        normalized_lemma = str(lemma or "").strip().casefold()
+        normalized_pos = str(part_of_speech or "").strip().casefold()
+        catalog = self.vocabulary_catalog()
+        exact = catalog.get((normalized_lemma, normalized_pos))
+        if exact is not None:
+            return dict(exact)
+        matches = [
+            card for (candidate_lemma, _candidate_pos), card in catalog.items()
+            if candidate_lemma == normalized_lemma
+        ]
+        if len(matches) == 1:
+            return dict(matches[0])
+        if not matches:
+            raise ValueError(f"简报词汇不在已完成的领域词卡目录中：{normalized_lemma}")
+        raise ValueError(f"简报词汇缺少可区分词义的词性：{normalized_lemma}")
+
+    def _canonicalize_brief_vocabulary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Attach fixed card meanings while retaining this brief's fresh context."""
+
+        result = dict(payload)
+        items: list[dict[str, Any]] = []
+        for raw_item in payload["items"]:
+            item = dict(raw_item)
+            words: list[dict[str, Any]] = []
+            for raw_word in item.get("vocabulary") or []:
+                word = dict(raw_word)
+                card = self._catalog_card(
+                    str(word.get("lemma") or ""),
+                    str(word.get("part_of_speech") or ""),
+                )
+                word.update(
+                    {
+                        "lemma": card["lemma"],
+                        "part_of_speech": card["part_of_speech"],
+                        "meaning": card["meaning_zh"],
+                        "meaning_zh": card["meaning_zh"],
+                        "meaning_en": card["meaning_en"],
+                        "sense_key": card["sense_key"],
+                    }
+                )
+                words.append(word)
+            item["vocabulary"] = words
+            item["estimated_unfamiliar_words"] = len(words)
+            items.append(item)
+        result["items"] = items
+        return result
 
     def _hydrate_word(self, paper_id: str, item: dict[str, Any]) -> dict[str, Any]:
         copy = dict(item)
@@ -323,7 +390,7 @@ class ContinuousStore:
         return result
 
     def import_brief(self, payload: dict[str, Any]) -> dict[str, Any]:
-        normalized = validate_brief(payload)
+        normalized = self._canonicalize_brief_vocabulary(validate_brief(payload))
         with self.connect() as connection:
             existing_row = connection.execute(
                 "SELECT payload_json FROM briefs WHERE brief_id = ?",
@@ -494,7 +561,7 @@ class ContinuousStore:
             raise ValueError("没有找到词汇对应的论文来源")
         result = []
         for item in vocabulary:
-            copy = self._hydrate_word(paper_id, dict(item))
+            copy = dict(item)
             lemma = str(copy.get("lemma") or "").strip().lower()
             meaning_zh = str(copy.get("meaning_zh") or copy.get("meaning") or "").strip()
             state = self.learning_store.status_for(
@@ -508,8 +575,8 @@ class ContinuousStore:
             copy["meaning_zh"] = meaning_zh
             copy["meaning_en"] = str(copy.get("meaning_en") or "").strip()
             copy["evidence_context_id"] = str(copy.get("evidence_context_id") or "").strip()
-            if not copy["meaning_en"] or not copy["meaning_zh"]:
-                raise ValueError(f"词汇 {lemma} 缺少论文语境对应的中英文解释")
+            if not copy["meaning_zh"]:
+                raise ValueError(f"词汇 {lemma} 缺少固定的中文解释")
             if not str(copy.get("context") or "").strip():
                 raise ValueError(f"词汇 {lemma} 缺少真实论文语境")
             if not copy["evidence_context_id"]:
@@ -527,9 +594,9 @@ class ContinuousStore:
         meaning_en = str(item.get("meaning_en") or "").strip()
         meaning_zh = str(item.get("meaning_zh") or item.get("meaning") or "").strip()
         context = str(item.get("context") or "").strip()
-        if not meaning_en or not meaning_zh or not context:
+        if not meaning_zh or not context:
             raise ValueError(
-                f"词汇 {lemma} 缺少由 Codex / Work Buddy 生成并经论文语境对齐的中英文解释"
+                f"词汇 {lemma} 缺少固定中文解释或论文语境"
             )
         return self.learning_store.upsert(
             item_type="word",
@@ -593,6 +660,98 @@ class ContinuousStore:
 
     def due_words(self, limit: int = 100) -> list[LearningItem]:
         return self.learning_store.due_items(limit)
+
+    def new_word_candidates(self, limit: int = 5) -> list[dict[str, Any]]:
+        """Local-only candidate cards for calibrated words not yet decided by user."""
+
+        if limit < 1:
+            raise ValueError("新词数量必须至少为 1")
+        path = self.workspace / "analysis" / "personalized-vocabulary.tsv"
+        if not path.is_file():
+            raise FileNotFoundError("缺少个人领域词表，请先完成 30 题校准")
+        candidates: list[dict[str, Any]] = []
+        with path.open(encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                if str(row.get("classification") or "") == "likely_known":
+                    continue
+                card = self._catalog_card(
+                    str(row.get("lemma") or ""),
+                    str(row.get("part_of_speech") or ""),
+                )
+                state = self.learning_store.status_for(
+                    "word",
+                    card["lemma"],
+                    meaning_zh=card["meaning_zh"],
+                    sense_key=card["sense_key"],
+                )
+                if state["status"] != "new":
+                    continue
+                candidates.append(
+                    {
+                        **card,
+                        "item_id": state["item_id"],
+                        "global_status": state["status"],
+                        "classification": str(row.get("classification") or ""),
+                        "importance_tier": str(row.get("importance_tier") or "D"),
+                    }
+                )
+        tier_order = {"A": 0, "B": 1, "C": 2, "D": 3}
+        candidates.sort(
+            key=lambda item: (
+                tier_order.get(item["importance_tier"], 99),
+                -int(item.get("document_count") or 0),
+                -int(item.get("total_count") or 0),
+                item["lemma"],
+            )
+        )
+        return candidates[:limit]
+
+    def set_new_word_status(self, card_id_value: str, status: str) -> str:
+        if status not in {"learning", "mastered"}:
+            raise ValueError("新词状态必须是 learning 或 mastered")
+        card = next(
+            (item for item in self.vocabulary_catalog().values() if item["card_id"] == card_id_value),
+            None,
+        )
+        if card is None:
+            raise ValueError("没有找到这个领域词卡")
+        path = self.workspace / "analysis" / "personalized-vocabulary.tsv"
+        if not path.is_file():
+            raise FileNotFoundError("缺少个人领域词表，请先完成 30 题校准")
+        eligible = False
+        with path.open(encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                if str(row.get("classification") or "") == "likely_known":
+                    continue
+                candidate = self._catalog_card(
+                    str(row.get("lemma") or ""),
+                    str(row.get("part_of_speech") or ""),
+                )
+                if candidate["card_id"] == card_id_value:
+                    eligible = True
+                    break
+        if not eligible:
+            raise ValueError("这个词不在当前个人词表的新词范围内")
+        resolved = self.learning_store.upsert(
+            item_type="word",
+            display_form=card["lemma"],
+            part_of_speech=card["part_of_speech"],
+            meaning_en=card["meaning_en"],
+            meaning_zh=card["meaning_zh"],
+            domain_label=self.display_name,
+            confidence=None,
+            domain_id=self.domain_id,
+            paper_id=card["source_paper_id"],
+            source_title=card["source_title"],
+            source_url=card["source_url"],
+            context=card["context"],
+            evidence_context_id=card["card_id"],
+            sense_key=card["sense_key"],
+            status=status,
+        )
+        if status == "mastered":
+            self.learning_store.set_mastered(resolved)
+        return resolved
 
     def review(self, item_id: str, rating_name: str) -> LearningItem | None:
         return self.learning_store.review(item_id, rating_name)
@@ -721,14 +880,11 @@ def validate_brief(payload: dict[str, Any]) -> dict[str, Any]:
             if not lemma or lemma in seen_lemmas:
                 continue
             seen_lemmas.add(lemma)
-            meaning_zh = str(
-                raw_word.get("meaning_zh") or raw_word.get("meaning") or ""
-            ).strip()
             unique_vocabulary.append(
                 {
                     "lemma": lemma,
-                    "meaning": meaning_zh,
-                    "meaning_zh": meaning_zh,
+                    "meaning": str(raw_word.get("meaning") or "").strip(),
+                    "meaning_zh": str(raw_word.get("meaning_zh") or "").strip(),
                     "meaning_en": str(raw_word.get("meaning_en") or "").strip(),
                     "part_of_speech": str(raw_word.get("part_of_speech") or "").strip(),
                     "context": str(raw_word.get("context") or "").strip(),
@@ -739,19 +895,11 @@ def validate_brief(payload: dict[str, Any]) -> dict[str, Any]:
                     ).strip(),
                 }
             )
-            if not unique_vocabulary[-1]["meaning_en"] or not unique_vocabulary[-1]["meaning_zh"]:
-                raise ValueError(
-                    f"brief.items[{index}] vocabulary bilingual meaning is required: {lemma}"
-                )
             if not unique_vocabulary[-1]["context"]:
                 raise ValueError(f"brief.items[{index}] vocabulary context is required: {lemma}")
             if not unique_vocabulary[-1]["evidence_context_id"]:
                 raise ValueError(
                     f"brief.items[{index}] vocabulary evidence_context_id is required: {lemma}"
-                )
-            if not unique_vocabulary[-1]["sense_key"]:
-                raise ValueError(
-                    f"brief.items[{index}] vocabulary sense_key is required: {lemma}"
                 )
         item["vocabulary"] = unique_vocabulary
         item["estimated_unfamiliar_words"] = len(unique_vocabulary)

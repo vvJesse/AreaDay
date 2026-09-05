@@ -32,6 +32,7 @@ from domain_registry import (
     default_registry_path,
     validate_initialized_workspace,
 )
+from vocabulary_cards import GLOSS_DATA_NAME, prepare_review_input
 from open_workbench import (
     HOST,
     ensure_workbench,
@@ -46,7 +47,7 @@ from terminology_assets import load_finalized_terminology
 
 
 SCHEMA_VERSION = 1
-APP_API_VERSION = 5
+APP_API_VERSION = 6
 STATUS_NAME = "status.json"
 LOCK_NAME = ".initialization.lock"
 
@@ -304,6 +305,13 @@ class InitializationController:
         if not terminology_input.is_file():
             raise InitializationError("Analysis did not write terminology review input")
 
+        card_review_input = self.workspace / "analysis" / "vocabulary-card-review-input.json"
+        if not card_review_input.is_file():
+            prepare_review_input(
+                self.workspace,
+                Path(__file__).resolve().parents[1] / "app" / "data" / GLOSS_DATA_NAME,
+            )
+
         combined_selection = self.workspace / "analysis" / "domain-review-selection.json"
         assets_summary = self.workspace / "analysis" / "domain-assets-summary.json"
         if not assets_summary.is_file():
@@ -313,6 +321,7 @@ class InitializationController:
                     input_paths={
                         "vocabulary": orthography_input,
                         "terminology": terminology_input,
+                        "vocabulary_cards": card_review_input,
                     },
                     output_path=combined_selection,
                     checkpoint="domain_review_needed",
@@ -320,7 +329,10 @@ class InitializationController:
                         "Review the vocabulary spelling queue and terminology candidates "
                         "together. Write one schema_version=1 review with "
                         "reviewer=current-host-agent, lemma_replacements, lemma_drops, "
-                        "terminology, terminology_explanations, and review_summary; then "
+                        "terminology, terminology_explanations, vocabulary_card_glosses, "
+                        "and review_summary. vocabulary_card_glosses must provide the "
+                        "Chinese meaning for every vocabulary_cards candidate, keyed by its "
+                        "final canonical lemma; English is optional. Then "
                         "immediately resume."
                     ),
                 )
