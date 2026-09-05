@@ -379,6 +379,40 @@ class StateMachineTests(unittest.TestCase):
         self.assertTrue(str(result["url"]).endswith("?domain=domain-a#review"))
         starter.assert_not_called()
 
+    def test_stale_same_registry_service_is_retired_and_replaced(self) -> None:
+        attempt, process = self.attempt()
+        stale = launcher.ProbeResult(
+            launcher.ProbeKind.STALE_RUNTIME,
+            identity=identity(
+                self.registry,
+                "old-instance",
+                ("domain-a",),
+            ),
+            detail="loaded=['domain-a'], expected=['domain-a', 'domain-b']",
+        )
+        absent = launcher.ProbeResult(launcher.ProbeKind.ABSENT)
+        probe = ScriptedProbe(stale, absent, match(self.registry, "own-instance"))
+        retire = mock.Mock(return_value=True)
+
+        result = launcher.ensure_workbench(
+            self.registry,
+            "domain-b",
+            "vocabulary",
+            43123,
+            expected_domain_ids=("domain-a", "domain-b"),
+            probe=probe,
+            starter=lambda *_: attempt,
+            monotonic=FakeClock().monotonic,
+            sleep=lambda _seconds: None,
+            retire_stale=retire,
+            fallback_port_count=0,
+        )
+
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(result["port"], 43123)
+        self.assertEqual(process.terminate_calls, 0)
+        retire.assert_called_once_with(43123, stale)
+
     def test_initial_unknown_service_conflicts_without_starting(self) -> None:
         starter = mock.Mock(side_effect=AssertionError("starter must not run"))
         probe = ScriptedProbe(
@@ -1165,6 +1199,10 @@ class ProductionHandshakeTests(unittest.TestCase):
         command = list(attempt.process.args)
         self.assertEqual(command[command.index("--instance-id") + 1], attempt.instance_id)
         self.assertEqual(
+            command[command.index("--idle-timeout-seconds") + 1],
+            str(launcher.DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS),
+        )
+        self.assertEqual(
             Path(command[command.index("--library") + 1]),
             self.registry_path.resolve(),
         )
@@ -1208,6 +1246,7 @@ class ProductionHandshakeTests(unittest.TestCase):
             "briefs",
             43130,
             expected_domain_ids=("alpha", "beta"),
+            starter=mock.ANY,
         )
 
 

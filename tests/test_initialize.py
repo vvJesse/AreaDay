@@ -222,6 +222,128 @@ class InitializationControllerTests(unittest.TestCase):
                 str(analysis / "orthography-review-input.json"),
             )
 
+    def test_completed_batch_with_a_drop_advances_to_finalization(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = InitializationController(controller_args(root))
+            analysis = controller.workspace / "analysis"
+            analysis.mkdir(parents=True)
+            (controller.workspace / "candidates.jsonl").write_text(
+                '{"candidate_id":"W1"}\n', encoding="utf-8"
+            )
+            (controller.workspace / "candidate-review-packet.jsonl").write_text(
+                '{"candidate_id":"W1"}\n', encoding="utf-8"
+            )
+            (controller.workspace / "candidate-review-selection.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            (controller.workspace / "cold-start-summary.json").write_text(
+                '{"corpus_is_usable":true}\n', encoding="utf-8"
+            )
+            (analysis / "orthography-review-input.json").write_text(
+                '{"candidates":[]}\n', encoding="utf-8"
+            )
+            (analysis / "orthography-review-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "reviewed_candidate_count": 0,
+                        "replacement_count": 0,
+                        "drop_count": 0,
+                        "explicit_keep_count": 0,
+                        "unchanged_candidate_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "terminology-review-input.json").write_text(
+                '{"candidates":[]}\n', encoding="utf-8"
+            )
+            candidates = [
+                {
+                    "observed_lemma": f"word{index}" if index < 6 else "geotagging",
+                    "representative_sentences": [],
+                    "dictionary_candidates": [],
+                    "acronym_expansions": [],
+                }
+                for index in range(1, 7)
+            ]
+            batches = []
+            for index, candidate in enumerate(candidates, start=1):
+                path = analysis / f"batch-{index:03d}.json"
+                path.write_text(
+                    json.dumps({"candidate_count": 1, "candidates": [candidate]}),
+                    encoding="utf-8",
+                )
+                batches.append(
+                    {
+                        "batch_index": index,
+                        "candidate_count": 1,
+                        "path": str(path),
+                        "lemmas": [candidate["observed_lemma"]],
+                    }
+                )
+            (analysis / "vocabulary-card-review-input.json").write_text(
+                json.dumps(
+                    {
+                        "candidate_count": 6,
+                        "batch_count": 6,
+                        "candidates": candidates,
+                        "batches": batches,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "domain-review-selection.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "terminology": {},
+                        "terminology_explanations": {},
+                        "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_glosses": {
+                            f"word{index}": {
+                                "meaning_zh": f"词{index}",
+                                "sense_key": f"word-{index}",
+                                "context_rationale": "Meaning is clear in context.",
+                            }
+                            for index in range(1, 6)
+                        },
+                        "vocabulary_card_drops": ["geotagging"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def complete_finalization(*_args, **_kwargs):
+                (analysis / "domain-assets-summary.json").write_text(
+                    json.dumps(
+                        {
+                            "ready_for_calibration": True,
+                            "vocabulary_cards": {
+                                "semantic_review_contract_version": 3
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with (
+                patch("initialize.prepare_review_input"),
+                patch.object(
+                    controller, "_run_helper", side_effect=complete_finalization
+                ) as run_helper,
+            ):
+                controller._prepare_assets()
+
+            run_helper.assert_called_once()
+            self.assertIn(
+                "finalize_domain_assets.py",
+                " ".join(str(value) for value in run_helper.call_args.args[0]),
+            )
+
     def test_verified_service_is_the_only_successful_terminal_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

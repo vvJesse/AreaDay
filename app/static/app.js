@@ -7,6 +7,8 @@ const TERMS_PER_PAGE = 20;
 const BRIEFS_PER_PAGE = 2;
 const TERM_CHECK_BATCH_SIZE = 5;
 const NEW_WORD_CHECK_BATCH_SIZE = 5;
+const ACTIVITY_HEARTBEAT_INTERVAL_MS = 30_000;
+const SERVICE_CLOSED_MESSAGE = "长时间未操作，AreaDay 已自动关闭。请在 Codex 或 WorkBuddy 中重新打开 AreaDay。";
 
 const views = {
   vocabulary: byId("vocabularyView"),
@@ -57,8 +59,50 @@ let thresholdTimer = null;
 let thresholdRequestId = 0;
 let mutationRevision = 0;
 let recommendedThreshold = 90;
+let idleTimeoutMs = 0;
+let idleDeadlineMs = 0;
+let idleTimer = null;
+let lastActivityHeartbeatMs = 0;
+let serviceClosed = false;
 
 class StaleDomainResponse extends Error {}
+class ServiceUnavailableError extends Error {}
+
+function scheduleIdleMessage() {
+  window.clearTimeout(idleTimer);
+  if (!idleTimeoutMs || serviceClosed) return;
+  idleTimer = window.setTimeout(
+    () => showServiceClosed(true),
+    Math.max(0, idleDeadlineMs - Date.now()) + 300,
+  );
+}
+
+function refreshIdleDeadline() {
+  if (!idleTimeoutMs || serviceClosed) return;
+  idleDeadlineMs = Date.now() + idleTimeoutMs;
+  scheduleIdleMessage();
+}
+
+function configureLifecycle(lifecycle) {
+  const seconds = Number(lifecycle?.idle_timeout_seconds || 0);
+  idleTimeoutMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+  serviceClosed = false;
+  refreshIdleDeadline();
+}
+
+function showServiceClosed(wasIdle) {
+  serviceClosed = true;
+  window.clearTimeout(idleTimer);
+  clearViews();
+  byId("errorView").hidden = false;
+  setText("errorTitle", "AreaDay 已关闭");
+  setText(
+    "errorMessage",
+    wasIdle
+      ? SERVICE_CLOSED_MESSAGE
+      : "AreaDay 本地服务已经关闭或无法连接。请在 Codex 或 WorkBuddy 中重新打开 AreaDay。",
+  );
+}
 
 function domainUrl(path, domainId) {
   const target = new URL(path, window.location.origin);
@@ -77,11 +121,17 @@ async function request(path, options = {}, requestContext = {}) {
     ...(options.headers || {}),
   };
   if (domainId) headers["X-ResearchRamp-Domain"] = domainId;
-  const response = await fetch(domainUrl(path, domainId), {
-    ...options,
-    headers,
-    signal: requestContext.signal || options.signal || domainAbortController.signal,
-  });
+  let response;
+  try {
+    response = await fetch(domainUrl(path, domainId), {
+      ...options,
+      headers,
+      signal: requestContext.signal || options.signal || domainAbortController.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw new ServiceUnavailableError("AreaDay 本地服务已经关闭或无法连接。");
+  }
   const data = await response.json();
   if (data.api_version !== EXPECTED_API_VERSION) {
     throw new Error("本地服务版本已经更新，请关闭旧页面并重新启动 AreaDay。");
@@ -91,7 +141,38 @@ async function request(path, options = {}, requestContext = {}) {
     throw new Error("研究领域响应缺失或不匹配，已停止显示这次结果。");
   }
   if (generation !== domainGeneration) throw new StaleDomainResponse();
+  lastActivityHeartbeatMs = Date.now();
+  if (data.lifecycle) configureLifecycle(data.lifecycle);
+  else refreshIdleDeadline();
   return data;
+}
+
+async function sendActivityHeartbeat() {
+  if (!idleTimeoutMs || serviceClosed) return;
+  const now = Date.now();
+  refreshIdleDeadline();
+  if (now - lastActivityHeartbeatMs < ACTIVITY_HEARTBEAT_INTERVAL_MS) return;
+  lastActivityHeartbeatMs = now;
+  const headers = {
+    "Content-Type": "application/json",
+    "X-ResearchRamp-API-Version": String(EXPECTED_API_VERSION),
+  };
+  if (currentDomainId) headers["X-ResearchRamp-Domain"] = currentDomainId;
+  try {
+    const response = await fetch(domainUrl("/api/activity", currentDomainId), {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+    if (!response.ok) throw new Error("activity heartbeat failed");
+    const data = await response.json();
+    if (data.api_version !== EXPECTED_API_VERSION) {
+      throw new Error("activity heartbeat version mismatch");
+    }
+    configureLifecycle(data.lifecycle);
+  } catch (error) {
+    showServiceClosed(false);
+  }
 }
 
 function setText(id, value) {
@@ -1235,8 +1316,13 @@ async function submitAnswer(response) {
 
 function showError(error) {
   if (error instanceof StaleDomainResponse || error?.name === "AbortError") return;
+  if (error instanceof ServiceUnavailableError) {
+    showServiceClosed(false);
+    return;
+  }
   clearViews();
   byId("errorView").hidden = false;
+  setText("errorTitle", "页面没有正常载入");
   setText("errorMessage", error.message || String(error));
 }
 
@@ -1245,6 +1331,9 @@ document.addEventListener("keydown", (event) => {
   const mapping = { "1": "known", "2": "unsure", "3": "unknown" };
   if (!byId("questionView").hidden && mapping[event.key]) submitAnswer(mapping[event.key]);
 });
+for (const eventName of ["pointerdown", "keydown", "touchstart", "scroll"]) {
+  document.addEventListener(eventName, sendActivityHeartbeat, { passive: true });
+}
 
 all("[data-view]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
 byId("briefSearch").addEventListener("input", (event) => {

@@ -5,6 +5,8 @@ import io
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from email.message import Message
 from pathlib import Path
@@ -15,6 +17,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from domain_registry import DomainRegistry  # noqa: E402
+import open_workbench as launcher  # noqa: E402
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -138,6 +141,108 @@ class WorkbenchIdentityTests(unittest.TestCase):
                 "domain_ids": ["alpha", "beta"],
             },
         )
+
+
+class WorkbenchLifecycleTests(unittest.TestCase):
+    def test_idle_server_stops_itself(self) -> None:
+        class Handler(APP.AppHandler):
+            pass
+
+        server = APP.WorkbenchHTTPServer(
+            ("127.0.0.1", 0),
+            Handler,
+            idle_timeout_seconds=0.1,
+        )
+        thread = threading.Thread(target=server.serve_until_shutdown)
+        thread.start()
+        try:
+            thread.join(timeout=1.0)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(server.shutdown_reason, "idle_timeout")
+        finally:
+            server.request_shutdown("test_cleanup")
+            server.server_close()
+            thread.join(timeout=1.0)
+
+    def test_activity_extends_the_idle_deadline(self) -> None:
+        class Handler(APP.AppHandler):
+            pass
+
+        server = APP.WorkbenchHTTPServer(
+            ("127.0.0.1", 0),
+            Handler,
+            idle_timeout_seconds=0.15,
+        )
+        thread = threading.Thread(target=server.serve_until_shutdown)
+        thread.start()
+        try:
+            time.sleep(0.08)
+            server.record_activity()
+            time.sleep(0.09)
+            self.assertTrue(thread.is_alive())
+            thread.join(timeout=0.2)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(server.shutdown_reason, "idle_timeout")
+        finally:
+            server.request_shutdown("test_cleanup")
+            server.server_close()
+            thread.join(timeout=1.0)
+
+    def test_static_page_contains_idle_shutdown_guidance(self) -> None:
+        script = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("长时间未操作，AreaDay 已自动关闭", script)
+        self.assertIn("请在 Codex 或 WorkBuddy 中重新打开 AreaDay", script)
+
+    def test_launcher_retires_verified_stale_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            registry_path = Path(temporary) / "registry.json"
+
+            class Handler(APP.AppHandler):
+                pass
+
+            Handler.runtime = APP.AppRuntime(
+                [context("alpha")],
+                initial_domain_id="alpha",
+                initial_view="vocabulary",
+                registry=DomainRegistry(registry_path),
+                instance_id="stale-instance",
+            )
+            Handler.static_dir = ROOT / "app" / "static"
+            server = APP.WorkbenchHTTPServer(
+                ("127.0.0.1", 0),
+                Handler,
+                idle_timeout_seconds=10,
+            )
+            port = int(server.server_address[1])
+
+            def serve() -> None:
+                try:
+                    server.serve_until_shutdown()
+                finally:
+                    server.server_close()
+
+            thread = threading.Thread(target=serve)
+            thread.start()
+            try:
+                probe = launcher.probe_workbench(
+                    port,
+                    registry_path,
+                    expected_domain_ids=("alpha", "beta"),
+                    timeout=0.5,
+                )
+                self.assertIs(probe.kind, launcher.ProbeKind.STALE_RUNTIME)
+
+                self.assertTrue(
+                    launcher.retire_stale_workbench(port, probe, timeout=1.0)
+                )
+                thread.join(timeout=1.0)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(server.shutdown_reason, "launcher_replacement")
+            finally:
+                server.request_shutdown("test_cleanup")
+                server.server_close()
+                thread.join(timeout=1.0)
 
 
 if __name__ == "__main__":

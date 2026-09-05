@@ -16,6 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote
@@ -29,9 +30,11 @@ from domain_registry import (
 from remote_calibration import InvalidCalibrationData
 from researchramp_license import enforce_business_license
 from workbench_protocol import (
+    DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
     WORKBENCH_IDENTITY_PATH,
     WORKBENCH_IDENTITY_VERSION,
     WORKBENCH_SERVICE,
+    WORKBENCH_SHUTDOWN_PATH,
 )
 
 
@@ -44,6 +47,7 @@ STARTUP_TIMEOUT_SECONDS = 12.0
 EXIT_CONVERGENCE_SECONDS = 0.5
 POLL_INTERVAL_SECONDS = 0.1
 LOG_TAIL_BYTES = 16_384
+STALE_SHUTDOWN_TIMEOUT_SECONDS = 3.0
 
 
 class ProbeKind(str, Enum):
@@ -104,7 +108,16 @@ def parse_args() -> argparse.Namespace:
             "ready while its 30-answer calibration is still incomplete."
         ),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+        help="Stop after this many seconds without user activity; zero disables it.",
+    )
+    args = parser.parse_args()
+    if args.idle_timeout_seconds < 0:
+        parser.error("--idle-timeout-seconds must be zero or positive")
+    return args
 
 
 def _connection_was_refused(error: OSError) -> bool:
@@ -401,7 +414,10 @@ def start_workbench(
     port: int,
     *,
     ready_calibration_domain: str | None = None,
+    idle_timeout_seconds: int = DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
 ) -> LaunchAttempt:
+    if isinstance(idle_timeout_seconds, bool) or idle_timeout_seconds < 0:
+        raise ValueError("Workbench idle timeout must be zero or positive")
     skill_root = Path(__file__).resolve().parents[1]
     server = skill_root / "app" / "server.py"
     instance_id = uuid.uuid4().hex
@@ -422,6 +438,8 @@ def start_workbench(
         "--instance-id",
         instance_id,
         "--no-browser",
+        "--idle-timeout-seconds",
+        str(idle_timeout_seconds),
     ]
     if ready_calibration_domain is not None:
         command.extend(
@@ -518,6 +536,69 @@ def startup_log_excerpt(log_path: Path) -> str:
     except OSError:
         return ""
     return payload[-LOG_TAIL_BYTES:].decode("utf-8", errors="replace").strip()
+
+
+def retire_stale_workbench(
+    port: int,
+    result: ProbeResult,
+    *,
+    timeout: float = STALE_SHUTDOWN_TIMEOUT_SECONDS,
+) -> bool:
+    """Ask one verified same-registry stale instance to release its port."""
+
+    identity = result.identity
+    if result.kind is not ProbeKind.STALE_RUNTIME or not isinstance(identity, dict):
+        return False
+    instance_id = identity.get("instance_id")
+    registry = identity.get("registry")
+    if not isinstance(instance_id, str) or not instance_id:
+        return False
+    if not isinstance(registry, str) or not registry:
+        return False
+    encoded = json.dumps({"instance_id": instance_id}).encode("utf-8")
+    connection = http.client.HTTPConnection(HOST, port, timeout=timeout)
+    try:
+        connection.request(
+            "POST",
+            WORKBENCH_SHUTDOWN_PATH,
+            body=encoded,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Content-Length": str(len(encoded)),
+                "Connection": "close",
+            },
+        )
+        response = connection.getresponse()
+        body = response.read(4_097)
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        connection.close()
+    if response.status != HTTPStatus.OK or len(body) > 4_096:
+        return False
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return False
+    if not isinstance(payload, dict) or payload.get("status") != "shutting_down":
+        return False
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        availability = probe_workbench(
+            port,
+            Path(registry),
+            timeout=min(PROBE_TIMEOUT_SECONDS, max(0.05, deadline - time.monotonic())),
+        )
+        if availability.kind is ProbeKind.ABSENT:
+            return True
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return probe_workbench(
+        port,
+        Path(registry),
+        timeout=PROBE_TIMEOUT_SECONDS,
+    ).kind is ProbeKind.ABSENT
 
 
 def _conflict(port: int, result: ProbeResult) -> WorkbenchConflict:
@@ -697,6 +778,7 @@ def ensure_workbench(
     sleep: Callable[[float], None] | None = None,
     startup_timeout: float = STARTUP_TIMEOUT_SECONDS,
     fallback_port_count: int = FALLBACK_PORT_COUNT,
+    retire_stale: Callable[[int, ProbeResult], bool] | None = None,
 ) -> dict[str, Any]:
     """Reuse or start one workbench, preferring ``port`` over fallbacks."""
 
@@ -719,18 +801,28 @@ def ensure_workbench(
     starter = starter or start_workbench
     monotonic = monotonic or time.monotonic
     sleep = sleep or time.sleep
+    retire_stale = retire_stale or retire_stale_workbench
     registry_path = registry_path.expanduser().resolve()
     ports = candidate_ports(port, fallback_port_count)
 
     initial_results: dict[int, ProbeResult] = {}
+    matching_port: int | None = None
     for candidate_port in ports:
         initial = probe(candidate_port, registry_path)
         initial_results[candidate_port] = initial
-        if initial.kind is ProbeKind.MATCH:
-            assert initial.identity is not None
-            return _result(
-                "reused", domain_id, view, candidate_port, initial.identity
-            )
+        if initial.kind is ProbeKind.MATCH and matching_port is None:
+            matching_port = candidate_port
+
+    for candidate_port, initial in initial_results.items():
+        if initial.kind is not ProbeKind.STALE_RUNTIME:
+            continue
+        if retire_stale(candidate_port, initial):
+            initial_results[candidate_port] = probe(candidate_port, registry_path)
+
+    if matching_port is not None:
+        matching = initial_results[matching_port]
+        assert matching.identity is not None
+        return _result("reused", domain_id, view, matching_port, matching.identity)
 
     conflicts: dict[int, ProbeResult] = {}
     for candidate_port in ports:
@@ -791,6 +883,11 @@ def main() -> None:
             "--ready-calibration-domain must equal the explicitly selected --domain"
         )
     calibration_domain = ready_calibration_domain or args.domain
+    idle_timeout_seconds = getattr(
+        args,
+        "idle_timeout_seconds",
+        DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+    )
     completed_domain_ids = launchable_registry_domain_ids(
         registry,
         calibration_domain,
@@ -806,20 +903,18 @@ def main() -> None:
         args.domain,
         completed_domain_ids,
     )
-    starter = None
-    if calibration_domain is not None:
-        starter = lambda path, domain, view, port: start_workbench(
-            path,
-            domain,
-            view,
-            port,
-            ready_calibration_domain=calibration_domain,
-        )
+    starter = lambda path, domain, view, port: start_workbench(
+        path,
+        domain,
+        view,
+        port,
+        ready_calibration_domain=calibration_domain,
+        idle_timeout_seconds=idle_timeout_seconds,
+    )
     ensure_kwargs: dict[str, Any] = {
         "expected_domain_ids": completed_domain_ids,
+        "starter": starter,
     }
-    if starter is not None:
-        ensure_kwargs["starter"] = starter
     result = ensure_workbench(
         registry_path,
         domain_id,

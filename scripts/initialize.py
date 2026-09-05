@@ -39,6 +39,7 @@ from vocabulary_cards import (
     validate_review_batch,
 )
 from open_workbench import (
+    DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
     HOST,
     ensure_workbench,
     launchable_registry_domain_ids,
@@ -213,6 +214,14 @@ class InitializationController:
             str(self.args.download_workers_per_host),
             "--port",
             str(self.args.port),
+            "--idle-timeout-seconds",
+            str(
+                getattr(
+                    self.args,
+                    "idle_timeout_seconds",
+                    DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+                )
+            ),
         ]
 
     def _run_helper(
@@ -398,6 +407,13 @@ class InitializationController:
                     supplied_lemmas = {
                         str(lemma).strip().casefold() for lemma in raw_glosses
                     }
+                    raw_drops = existing_selection.get("vocabulary_card_drops", [])
+                    if isinstance(raw_drops, list):
+                        supplied_lemmas.update(
+                            str(lemma).strip().casefold() for lemma in raw_drops
+                        )
+                    else:
+                        selection_is_current = False
                     if supplied_lemmas - expected_lemmas:
                         selection_is_current = False
                         supplied_lemmas = set()
@@ -468,16 +484,19 @@ class InitializationController:
                             "Also review the terminology input and create one schema_version=1 "
                             "selection with reviewer=current-host-agent, terminology, "
                             "terminology_explanations, vocabulary_card_glosses, "
+                            "vocabulary_card_drops, "
                             if not selection_is_current
                             else "Read the existing selection, preserve all terminology and "
-                            "other vocabulary_card_glosses, and add or correct this batch with "
+                            "other vocabulary_card_glosses and vocabulary_card_drops, and add "
+                            "or correct this batch with "
                         )
                         + f"vocabulary_card_review_schema_version={REVIEW_SCHEMA_VERSION}, "
                         "and review_summary. The batch records are in top-level .candidates; "
-                        "verify .candidate_count, review each item semantically, and include its "
-                        "exact evidence plus candidate-specific context_rationale. Never copy "
-                        "the first dictionary entry across the batch. Corpus acronym expansions "
-                        "and representative sentences control conflicting senses. Write the "
+                        "verify .candidate_count, and either gloss each item with a sense_key "
+                        "and brief context_rationale or put an item that cannot be judged "
+                        "confidently in vocabulary_card_drops. Never copy the first dictionary "
+                        "entry across the batch. Corpus acronym expansions and representative "
+                        "sentences control conflicting senses. Write the "
                         "updated selection and immediately resume; the controller will supply "
                         "the next bounded batch until exact coverage is complete."
                     ),
@@ -517,6 +536,11 @@ class InitializationController:
             view,
             port,
             ready_calibration_domain=domain_id,
+            idle_timeout_seconds=getattr(
+                self.args,
+                "idle_timeout_seconds",
+                DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+            ),
         )
         launch = ensure_workbench(
             self.registry_path,
@@ -704,6 +728,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--download-workers", type=int, default=4)
     parser.add_argument("--download-workers-per-host", type=int, default=2)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+        help="Stop the calibration workbench after this many idle seconds.",
+    )
     args = parser.parse_args()
     if not 1 <= args.target_papers <= 100:
         parser.error("--target-papers must be between 1 and 100")
@@ -713,6 +743,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--download-workers-per-host must be between 1 and --download-workers")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
+    if args.idle_timeout_seconds < 0:
+        parser.error("--idle-timeout-seconds must be zero or positive")
     return args
 
 

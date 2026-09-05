@@ -218,6 +218,7 @@ class TerminologyInitializationTests(unittest.TestCase):
                         }
                     },
                     "vocabulary_card_review_schema_version": 3,
+                    "vocabulary_card_drops": [],
                     "vocabulary_card_glosses": {
                         lemma: {
                             "meaning_en": f"Synthetic definition for {lemma}.",
