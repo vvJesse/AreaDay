@@ -221,6 +221,7 @@ class TerminologyInitializationTests(unittest.TestCase):
                         lemma: {
                             "meaning_en": f"Synthetic definition for {lemma}.",
                             "meaning_zh": f"{lemma} 的合成中文解释。",
+                            "sense_key": f"synthetic-{lemma}",
                         }
                         for lemma in (f"model{index}" for index in range(30))
                     },

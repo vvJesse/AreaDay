@@ -370,9 +370,11 @@ class InitializationController:
                         "reviewer=current-host-agent, terminology, "
                         "terminology_explanations, vocabulary_card_glosses, "
                         "and review_summary. vocabulary_card_glosses must provide the "
-                        "Chinese meaning for every vocabulary_cards candidate, keyed by its "
-                        "already finalized canonical lemma; English is optional. Then "
-                        "immediately resume."
+                        "contextual Chinese meaning and a stable semantic sense_key for every "
+                        "vocabulary_cards candidate, keyed by its already finalized canonical "
+                        "lemma; English is optional. Treat dictionary meanings as suggestions "
+                        "and use corpus acronym expansions and representative sentences as "
+                        "the authority. Then immediately resume."
                     ),
                 )
                 raise StopIteration

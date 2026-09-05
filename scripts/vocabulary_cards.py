@@ -26,6 +26,7 @@ SUMMARY_NAME = "vocabulary-card-summary.json"
 REVIEW_INPUT_NAME = "vocabulary-card-review-input.json"
 GLOSS_DATA_NAME = "ecdict_glosses.tsv.gz"
 WORD_PATTERN = re.compile(r"^[a-z][a-z0-9'-]*$")
+ACRONYM_SURFACE_PATTERN = re.compile(r"^[A-Z][A-Z0-9-]{1,11}s?$")
 
 
 def _normalize(value: object) -> str:
@@ -78,13 +79,19 @@ def _pos_matches(card_pos: str, dictionary_pos: str) -> bool:
 
 
 def _compact_gloss(value: object, *, maximum: int = 420) -> str:
-    """Keep the first useful short dictionary sense without copied clutter."""
+    """Normalize a short dictionary gloss without leaking escaped line breaks."""
 
-    lines = [re.sub(r"\s+", " ", line).strip() for line in str(value or "").splitlines()]
+    raw = (
+        str(value or "")
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\r", "\n")
+    )
+    lines = [re.sub(r"\s+", " ", line).strip() for line in raw.splitlines()]
     lines = [line for line in lines if line and not line.startswith("[")]
     if not lines:
         return ""
-    text = lines[0]
+    text = "；".join(line.rstrip(";；") for line in lines)
     return text if len(text) <= maximum else text[: maximum - 1].rstrip() + "…"
 
 
@@ -136,6 +143,101 @@ def select_dictionary_gloss(
     return None
 
 
+def _acronym_expansions(path: Path) -> dict[str, list[str]]:
+    if not path.is_file():
+        return {}
+    result: dict[str, set[str]] = {}
+    for item in _load_jsonl(path):
+        term = _normalize(item.get("term"))
+        if not term:
+            continue
+        for raw_acronym in item.get("acronyms") or []:
+            acronym = _normalize(raw_acronym)
+            if acronym:
+                result.setdefault(acronym, set()).add(term)
+    return {key: _collapse_plural_expansions(values) for key, values in result.items()}
+
+
+def _collapse_plural_expansions(values: Iterable[str]) -> list[str]:
+    normalized = {_normalize(value) for value in values if _normalize(value)}
+    collapsed: list[str] = []
+    for value in sorted(normalized):
+        words = value.split()
+        if not words:
+            continue
+        last = words[-1]
+        stems = []
+        if last.endswith("ies") and len(last) > 3:
+            stems.append(last[:-3] + "y")
+        if last.endswith("es") and len(last) > 2:
+            stems.append(last[:-2])
+        if last.endswith("s") and len(last) > 1:
+            stems.append(last[:-1])
+        singular_variants = {" ".join([*words[:-1], stem]) for stem in stems}
+        if singular_variants & normalized:
+            continue
+        collapsed.append(value)
+    return collapsed
+
+
+def _has_acronym_surface(word: dict[str, Any]) -> bool:
+    return any(
+        ACRONYM_SURFACE_PATTERN.fullmatch(str(item.get("form") or "").strip())
+        for item in word.get("surface_forms") or []
+        if isinstance(item, dict)
+    )
+
+
+def _dictionary_marks_abbreviation(candidates: list[DictionaryGloss]) -> bool:
+    return any(
+        re.search(r"\babbr\.?", f"{item.meaning_en} {item.meaning_zh}", flags=re.I)
+        or "缩写" in item.meaning_zh
+        for item in candidates
+    )
+
+
+def _context_review_reasons(
+    glossary: dict[str, list[DictionaryGloss]],
+    word: dict[str, Any],
+    acronym_map: dict[str, list[str]],
+) -> list[str]:
+    lemma = _normalize(word.get("lemma"))
+    part_of_speech = str(word.get("part_of_speech") or "").strip()
+    candidates = glossary.get(lemma, [])
+    selected = select_dictionary_gloss(glossary, lemma, part_of_speech)
+    reasons: list[str] = []
+    if selected is None:
+        reasons.append("no_unambiguous_dictionary_gloss")
+    if len(candidates) > 1:
+        reasons.append("multiple_dictionary_entries")
+    if _has_acronym_surface(word):
+        reasons.append("acronym_surface_form")
+    if acronym_map.get(lemma):
+        reasons.append("corpus_acronym_expansion")
+    if _dictionary_marks_abbreviation(candidates):
+        reasons.append("dictionary_abbreviation")
+    return reasons
+
+
+def _dictionary_candidates_payload(
+    candidates: list[DictionaryGloss],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "part_of_speech": item.part_of_speech,
+            "meaning_en": item.meaning_en,
+            "meaning_zh": item.meaning_zh,
+        }
+        for item in candidates
+    ]
+
+
+def _suggested_sense_key(expansions: list[str]) -> str:
+    if len(expansions) != 1:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "-", expansions[0].casefold()).strip("-")
+
+
 def _review_glosses(selection: dict[str, Any]) -> dict[str, dict[str, str]]:
     raw = selection.get("vocabulary_card_glosses", {})
     if raw is None:
@@ -150,9 +252,13 @@ def _review_glosses(selection: dict[str, Any]) -> dict[str, dict[str, str]]:
         meaning_zh = _compact_gloss(raw_gloss.get("meaning_zh"))
         if not meaning_zh:
             raise ValueError(f"Vocabulary card gloss has no Chinese meaning: {lemma}")
+        sense_key = _normalize(raw_gloss.get("sense_key"))
+        if not sense_key:
+            raise ValueError(f"Vocabulary card gloss has no stable sense key: {lemma}")
         result[lemma] = {
             "meaning_en": _compact_gloss(raw_gloss.get("meaning_en")),
             "meaning_zh": meaning_zh,
+            "sense_key": sense_key,
         }
     return result
 
@@ -183,7 +289,7 @@ def _source_for_word(word: dict[str, Any], papers: dict[str, dict[str, Any]]) ->
 
 
 def prepare_review_input(workspace: Path, dictionary_path: Path) -> dict[str, Any]:
-    """Prepare dictionary misses only after vocabulary spelling is finalized."""
+    """Prepare context-sensitive glosses after vocabulary spelling is finalized."""
 
     resolved = workspace.expanduser().resolve()
     analysis = resolved / "analysis"
@@ -199,29 +305,52 @@ def prepare_review_input(workspace: Path, dictionary_path: Path) -> dict[str, An
         )
     glossary = load_dictionary_glosses(dictionary_path)
     vocabulary = _load_jsonl(analysis / "vocabulary-map.jsonl")
+    acronym_map = _acronym_expansions(analysis / "terminology-candidates.jsonl")
     candidates = []
     for word in vocabulary:
         lemma = _normalize(word.get("lemma"))
         pos = str(word.get("part_of_speech") or "").strip()
-        if not lemma or select_dictionary_gloss(glossary, lemma, pos) is not None:
+        if not lemma:
             continue
+        review_reasons = _context_review_reasons(glossary, word, acronym_map)
+        if not review_reasons:
+            continue
+        expansions = acronym_map.get(lemma, [])
         candidates.append(
             {
                 "observed_lemma": lemma,
                 "part_of_speech": pos,
+                "surface_forms": word.get("surface_forms") or [],
                 "representative_sentences": word.get("representative_sentences") or [],
                 "source_papers": word.get("source_papers") or [],
-                "reason": "ECDICT has no unambiguous Chinese gloss for this lemma and part of speech.",
+                "review_reasons": review_reasons,
+                "acronym_expansions": expansions,
+                "suggested_sense_key": _suggested_sense_key(expansions),
+                "dictionary_candidates": _dictionary_candidates_payload(
+                    glossary.get(lemma, [])
+                ),
             }
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "instruction": (
-            "For each unresolved vocabulary card, write a concise Chinese explanation "
-            "grounded in the supplied representative sentence. Also write a concise "
-            "English explanation when it is useful. Every candidate already passed the "
-            "separate orthography review; use its supplied canonical lemma unchanged."
+            "For every candidate, choose the meaning used in this research corpus, grounded "
+            "in its representative sentences and acronym expansions. Dictionary candidates "
+            "are suggestions, never authority for an acronym or context-sensitive word. "
+            "Write a concise Chinese explanation, an English explanation when useful, and a "
+            "stable semantic sense_key that distinguishes different meanings of the same "
+            "spelling across domains. Prefer suggested_sense_key when it matches the evidence. "
+            "Every candidate already passed orthography review; keep its canonical lemma."
         ),
+        "output_schema": {
+            "vocabulary_card_glosses": {
+                "exact observed_lemma": {
+                    "meaning_en": "concise contextual English explanation or empty string",
+                    "meaning_zh": "concise contextual Chinese explanation",
+                    "sense_key": "stable semantic identifier",
+                }
+            }
+        },
         "candidates": candidates,
     }
     write_json(analysis / REVIEW_INPUT_NAME, payload)
@@ -240,6 +369,7 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
     reviewed = _review_glosses(selection)
     papers = _paper_index(resolved)
     vocabulary = _load_jsonl(analysis / "vocabulary-map.jsonl")
+    acronym_map = _acronym_expansions(analysis / "first-terminology-map.jsonl")
     cards: list[dict[str, Any]] = []
     ecdict_count = 0
     agent_count = 0
@@ -255,10 +385,12 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
             raise ValueError(f"Vocabulary card identity is duplicated: {identifier}")
         seen.add(identifier)
         dictionary_gloss = select_dictionary_gloss(glossary, lemma, pos)
-        if dictionary_gloss is not None:
+        review_reasons = _context_review_reasons(glossary, word, acronym_map)
+        if not review_reasons and dictionary_gloss is not None:
             meaning_en = dictionary_gloss.meaning_en
             meaning_zh = dictionary_gloss.meaning_zh
             origin = "ecdict"
+            sense_key = identifier
             ecdict_count += 1
         else:
             agent_gloss = reviewed.get(lemma)
@@ -266,7 +398,11 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
                 raise ValueError(f"Vocabulary card gloss is unresolved: {lemma}")
             meaning_en = agent_gloss["meaning_en"]
             meaning_zh = agent_gloss["meaning_zh"]
-            origin = "agent"
+            sense_key = (
+                _suggested_sense_key(acronym_map.get(lemma, []))
+                or agent_gloss["sense_key"]
+            )
+            origin = "agent-contextual" if dictionary_gloss is not None else "agent"
             agent_count += 1
         source = _source_for_word(word, papers)
         if meaning_en:
@@ -274,7 +410,7 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
         cards.append(
             {
                 "card_id": identifier,
-                "sense_key": identifier,
+                "sense_key": sense_key,
                 "lemma": lemma,
                 "part_of_speech": pos,
                 "meaning_en": meaning_en,

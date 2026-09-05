@@ -274,7 +274,10 @@ class VocabularyCardBuildTests(unittest.TestCase):
                 json.dumps(
                     {
                         "vocabulary_card_glosses": {
-                            "beta": {"meaning_zh": "贝塔的人工释义。"}
+                            "beta": {
+                                "meaning_zh": "贝塔的人工释义。",
+                                "sense_key": "beta-concept",
+                            }
                         }
                     }
                 ),
@@ -298,6 +301,214 @@ class VocabularyCardBuildTests(unittest.TestCase):
             self.assertEqual(cards[0]["meaning_origin"], "ecdict")
             self.assertEqual(cards[1]["meaning_origin"], "agent")
             self.assertEqual(cards[1]["meaning_en"], "")
+            self.assertEqual(cards[1]["sense_key"], "beta-concept")
+
+    def test_domain_acronym_is_reviewed_in_context_instead_of_trusting_ecdict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "papers.jsonl",
+                [{"openalex_id": "W1", "title": "LLM research", "doi": "10.1000/llm"}],
+            )
+            vocabulary = [
+                {
+                    "lemma": "llm",
+                    "part_of_speech": "NOUN",
+                    "surface_forms": [
+                        {"form": "LLMs", "count": 12},
+                        {"form": "LLM", "count": 5},
+                    ],
+                    "total_count": 17,
+                    "document_count": 2,
+                    "document_share": 1.0,
+                    "representative_sentences": [
+                        {
+                            "openalex_id": "W1",
+                            "sentence": "Large language models (LLMs) generate text.",
+                        }
+                    ],
+                    "source_papers": ["W1"],
+                },
+                {
+                    "lemma": "alpha",
+                    "part_of_speech": "NOUN",
+                    "surface_forms": [{"form": "alpha", "count": 3}],
+                    "total_count": 3,
+                    "document_count": 1,
+                    "document_share": 0.5,
+                    "representative_sentences": [
+                        {"openalex_id": "W1", "sentence": "Alpha is first."}
+                    ],
+                    "source_papers": ["W1"],
+                },
+            ]
+            write_jsonl(analysis / "vocabulary-map.jsonl", vocabulary)
+            terminology = [
+                {
+                    "term": "large language model",
+                    "acronyms": ["LLM"],
+                    "source_papers": ["W1"],
+                    "representative_sentences": [
+                        {
+                            "openalex_id": "W1",
+                            "sentence": "Large language models (LLMs) generate text.",
+                        }
+                    ],
+                },
+                {
+                    "term": "large language models",
+                    "acronyms": ["LLM"],
+                    "source_papers": ["W1"],
+                    "representative_sentences": [
+                        {
+                            "openalex_id": "W1",
+                            "sentence": "Large language models (LLMs) generate text.",
+                        }
+                    ],
+                },
+            ]
+            write_jsonl(analysis / "terminology-candidates.jsonl", terminology)
+            (analysis / "orthography-review-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "reviewed_candidate_count": 0,
+                        "replacement_count": 0,
+                        "drop_count": 0,
+                        "explicit_keep_count": 0,
+                        "unchanged_candidate_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "corpus-stats.json").write_text(
+                json.dumps({"orthography_review_applied": True}), encoding="utf-8"
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "lemma": "llm",
+                        "part_of_speech": "",
+                        "meaning_en": "n an advanced law degree",
+                        "meaning_zh": "abbr. 法学硕士；法律硕士",
+                    }
+                )
+                writer.writerow(
+                    {
+                        "lemma": "alpha",
+                        "part_of_speech": "n.",
+                        "meaning_en": "first",
+                        "meaning_zh": "第一个",
+                    }
+                )
+
+            result = prepare_review_input(workspace, dictionary)
+            payload = json.loads(
+                (analysis / "vocabulary-card-review-input.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["candidate_count"], 1)
+            candidate = payload["candidates"][0]
+            self.assertEqual(candidate["observed_lemma"], "llm")
+            self.assertEqual(candidate["acronym_expansions"], ["large language model"])
+            self.assertEqual(candidate["suggested_sense_key"], "large-language-model")
+            self.assertIn("法学硕士", candidate["dictionary_candidates"][0]["meaning_zh"])
+
+            write_jsonl(analysis / "first-terminology-map.jsonl", terminology[:1])
+            selection = analysis / "domain-review-selection.json"
+            selection.write_text(
+                json.dumps(
+                    {
+                        "vocabulary_card_glosses": {
+                            "llm": {
+                                "meaning_en": "Large language model.",
+                                "meaning_zh": "大语言模型。",
+                                "sense_key": "agent-proposed-llm-sense",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            catalog_result = build_catalog(workspace, selection, dictionary)
+            cards = {
+                row["lemma"]: row
+                for row in (
+                    json.loads(line)
+                    for line in (analysis / "vocabulary-card-catalog.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                )
+            }
+            self.assertEqual(catalog_result["ecdict_count"], 1)
+            self.assertEqual(catalog_result["agent_count"], 1)
+            self.assertEqual(cards["llm"]["meaning_zh"], "大语言模型。")
+            self.assertEqual(cards["llm"]["meaning_origin"], "agent-contextual")
+            self.assertEqual(cards["llm"]["sense_key"], "large-language-model")
+            self.assertEqual(cards["alpha"]["meaning_origin"], "ecdict")
+
+    def test_literal_escaped_newlines_are_not_written_to_dictionary_glosses(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "papers.jsonl",
+                [{"openalex_id": "W1", "title": "Source", "doi": "10.1000/source"}],
+            )
+            write_jsonl(
+                analysis / "vocabulary-map.jsonl",
+                [
+                    {
+                        "lemma": "formalize",
+                        "part_of_speech": "verb",
+                        "total_count": 2,
+                        "document_count": 1,
+                        "document_share": 1.0,
+                        "representative_sentences": [
+                            {"openalex_id": "W1", "sentence": "We formalize the method."}
+                        ],
+                    }
+                ],
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "lemma": "formalize",
+                        "part_of_speech": "v.",
+                        "meaning_en": "make formal or official",
+                        "meaning_zh": "vt. 使正式, 使整形, 形式化\\nvi. 拘泥于形式",
+                    }
+                )
+            selection = analysis / "domain-review-selection.json"
+            selection.write_text(json.dumps({"vocabulary_card_glosses": {}}), encoding="utf-8")
+
+            build_catalog(workspace, selection, dictionary)
+            stored = json.loads(
+                (analysis / "vocabulary-card-catalog.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()[0]
+            )
+            self.assertNotIn("\\n", stored["meaning_zh"])
+            self.assertEqual(
+                stored["meaning_zh"], "vt. 使正式, 使整形, 形式化；vi. 拘泥于形式"
+            )
 
 
 if __name__ == "__main__":
