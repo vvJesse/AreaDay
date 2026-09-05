@@ -12,12 +12,15 @@ Use this reference only when establishing or rebuilding a research domain. An
 ordinary request to open vocabulary, briefs, review, or domain switching uses
 the fast path in `SKILL.md`.
 
-Before asking the domain questions below, run the prediction preflight required
-by `SKILL.md`. A missing or invalid license stops before paper collection. A
-temporary prediction-service outage is not a license failure: explain that the
-local mini corpus can still be prepared but the 30-question calibration and
-personal vocabulary cannot finish unless the service becomes available, then
-wait for the user's explicit choice to continue or postpone.
+Before asking the domain questions below, run the local offline license status
+check required by `SKILL.md`. A missing or invalid license stops before paper
+collection. Do not probe the remote prediction service at this point: its
+availability does not decide whether profile confirmation, paper collection,
+or local corpus analysis may begin. The service is first needed after the local
+vocabulary and terminology are ready, when the workbench starts the 30-question
+calibration. If it is unavailable then, preserve the completed local preparation
+and resume the same initialization operation later; do not repeat corpus work or
+report the outage as an invalid license.
 
 ## The lifecycle contract
 

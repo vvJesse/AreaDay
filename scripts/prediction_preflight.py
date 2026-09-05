@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check personal-vocabulary prediction access before corpus collection."""
+"""Diagnose remote calibration access; this is not an initialization gate."""
 
 from __future__ import annotations
 
