@@ -910,17 +910,61 @@ function showReviewHub() {
 }
 
 function renderDueReviewEntry(count) {
+  const availableNewWords = availableNewWordCards();
   if (count > 0) {
     setText("dueReviewHeadline", `${count} 个学习项目已经到期`);
     setText("dueReviewDescription", "这里包含已经进入学习计划并在今天到期的生词和术语。");
     byId("startDueReviewButton").disabled = false;
     byId("startDueReviewButton").textContent = "开始今日复习";
-  } else {
-    setText("dueReviewHeadline", "今天的到期复习已经完成");
-    setText("dueReviewDescription", "现在没有到期内容。新的术语不会自动加入这里，除非你选择需要学习。");
-    byId("startDueReviewButton").disabled = true;
-    byId("startDueReviewButton").textContent = "暂无到期内容";
+    byId("startDueReviewButton").hidden = false;
+    byId("newWordSelectionPanel").hidden = true;
+    return;
   }
+  if (!availableNewWords.length) {
+    setText("dueReviewHeadline", "今天的词汇学习已经完成");
+    setText("dueReviewDescription", "今天没有到期内容，也没有可学习的新词。");
+    byId("startDueReviewButton").disabled = true;
+    byId("startDueReviewButton").textContent = "暂无可学习内容";
+    byId("startDueReviewButton").hidden = false;
+    byId("newWordSelectionPanel").hidden = true;
+    return;
+  }
+  setText("dueReviewHeadline", "继续学习领域的新词");
+  setText("dueReviewDescription", "今天没有到期内容，先把新词补完，之后再继续到期复习。");
+  byId("startDueReviewButton").disabled = false;
+  byId("startDueReviewButton").textContent = "继续学习领域新词";
+  byId("startDueReviewButton").hidden = false;
+  byId("newWordSelectionPanel").hidden = true;
+}
+
+function showDueReviewNewWordSelection() {
+  const available = availableNewWordCards();
+  if (!available.length) return;
+  const defaultCount = Math.min(NEW_WORD_CHECK_BATCH_SIZE, available.length);
+  byId("dueReviewNewWordCountInput").min = "1";
+  byId("dueReviewNewWordCountInput").max = String(available.length);
+  byId("dueReviewNewWordCountInput").value = String(defaultCount);
+  setText("dueReviewNewWordHint", `本次可学习 ${formatCount(available.length)} 个新词`);
+  byId("newWordSelectionPanel").hidden = false;
+  byId("startDueReviewButton").hidden = true;
+}
+
+function hideDueReviewNewWordSelection() {
+  byId("newWordSelectionPanel").hidden = true;
+  byId("startDueReviewButton").hidden = false;
+}
+
+function startNewWordCheckFromInput() {
+  const rawInput = Number.parseInt(byId("dueReviewNewWordCountInput").value, 10);
+  const available = availableNewWordCards();
+  if (!available.length) {
+    hideDueReviewNewWordSelection();
+    return;
+  }
+  let count = Number.isInteger(rawInput) ? rawInput : NEW_WORD_CHECK_BATCH_SIZE;
+  count = Math.min(Math.max(count, 1), available.length);
+  hideDueReviewNewWordSelection();
+  startNewWordCheck(count);
 }
 
 function newTermCandidates() {
@@ -961,21 +1005,6 @@ function availableNewWordCards() {
   return newWordCards.filter((card) => (
     card.global_status === "new" && !newWordCheckSkippedThisVisit.has(card.card_id)
   ));
-}
-
-function renderNewWordDiscoveryCard() {
-  const available = availableNewWordCards();
-  if (!available.length) {
-    setText("newWordDiscoveryHeadline", "这次没有更多待确认的新词");
-    setText("newWordDiscoveryDescription", "你已看完当前优先的新词，之后仍可随时回来继续学习。");
-    byId("startNewWordCheckButton").disabled = true;
-    byId("startNewWordCheckButton").textContent = "暂时没有新词";
-    return;
-  }
-  setText("newWordDiscoveryHeadline", `可以认识 ${Math.min(NEW_WORD_CHECK_BATCH_SIZE, available.length)} 个领域新词`);
-  setText("newWordDiscoveryDescription", "释义和原文语境已在建立领域时准备好；只有你选择“需要学习”的词才会进入复习。");
-  byId("startNewWordCheckButton").disabled = false;
-  byId("startNewWordCheckButton").textContent = `看看今天的 ${Math.min(NEW_WORD_CHECK_BATCH_SIZE, available.length)} 个新词`;
 }
 
 function renderCurrentReviewItem() {
@@ -1019,12 +1048,11 @@ async function loadReview({ continueSession = false } = {}) {
   updateNavDueCount(data.count);
   renderDueReviewEntry(data.count);
   renderTermDiscoveryCard();
-  renderNewWordDiscoveryCard();
   setText(
     "reviewSummary",
     data.count
       ? `今天有 ${data.count} 个学习项目到期，也可以顺便确认几个新术语或新词。`
-      : "今天没有到期内容，也可以顺便认识几个新术语或新词。",
+      : "今天没有到期内容，也可以顺便认识几个新术语。",
   );
   if (continueSession && data.count > 0) {
     renderCurrentReviewItem();
@@ -1102,10 +1130,11 @@ function renderNewWordCheckCurrent() {
   byId("newWordCheckSource").href = card.source_url;
 }
 
-function startNewWordCheck() {
+function startNewWordCheck(limit = NEW_WORD_CHECK_BATCH_SIZE) {
   const candidates = availableNewWordCards();
-  if (!candidates.length) return;
-  newWordCheckBatch = candidates.slice(0, NEW_WORD_CHECK_BATCH_SIZE);
+  const targetCount = Math.min(Math.max(Math.floor(limit), 1), candidates.length);
+  if (!targetCount) return;
+  newWordCheckBatch = candidates.slice(0, targetCount);
   newWordCheckIndex = 0;
   newWordCheckResults = { mastered: 0, learning: 0, skipped: 0 };
   byId("reviewHub").hidden = true;
@@ -1130,7 +1159,7 @@ function showNewWordCheckComplete() {
   );
   const remaining = availableNewWordCards().length;
   byId("checkMoreNewWordsButton").hidden = remaining === 0;
-  byId("checkMoreNewWordsButton").textContent = `今天再看 ${Math.min(NEW_WORD_CHECK_BATCH_SIZE, remaining)} 个`;
+  byId("checkMoreNewWordsButton").textContent = "再学习新词";
 }
 
 async function answerNewWordCheck(action) {
@@ -1282,8 +1311,14 @@ byId("revealReviewButton").addEventListener("click", () => {
   byId("masterReviewButton").hidden = false;
 });
 byId("startDueReviewButton").addEventListener("click", () => {
-  if (!dueReviewItems.length) return;
-  renderCurrentReviewItem();
+  if (dueReviewItems.length) {
+    renderCurrentReviewItem();
+    return;
+  }
+  const availableNewWords = availableNewWordCards();
+  if (availableNewWords.length) {
+    showDueReviewNewWordSelection();
+  }
 });
 byId("startTermCheckButton").addEventListener("click", startTermCheck);
 byId("termCheckMastered").addEventListener("click", () => answerTermCheck("mastered"));
@@ -1292,12 +1327,18 @@ byId("termCheckSkip").addEventListener("click", () => answerTermCheck("skipped")
 byId("exitTermCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
 byId("checkMoreTermsButton").addEventListener("click", startTermCheck);
 byId("finishTermCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
-byId("startNewWordCheckButton").addEventListener("click", startNewWordCheck);
+byId("confirmNewWordSelectionButton").addEventListener("click", startNewWordCheckFromInput);
+byId("cancelNewWordSelectionButton").addEventListener("click", hideDueReviewNewWordSelection);
 byId("newWordCheckMastered").addEventListener("click", () => answerNewWordCheck("mastered"));
 byId("newWordCheckLearning").addEventListener("click", () => answerNewWordCheck("learning"));
 byId("newWordCheckSkip").addEventListener("click", () => answerNewWordCheck("skipped"));
 byId("exitNewWordCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
-byId("checkMoreNewWordsButton").addEventListener("click", startNewWordCheck);
+byId("checkMoreNewWordsButton").addEventListener("click", () => {
+  const availableNewWords = availableNewWordCards();
+  if (availableNewWords.length) {
+    showDueReviewNewWordSelection();
+  }
+});
 byId("finishNewWordCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
 all("[data-rating]").forEach((button) => button.addEventListener("click", async () => {
   if (!currentReviewWord || busy) return;

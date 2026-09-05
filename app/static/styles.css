@@ -739,6 +739,23 @@ header {
 .review-entry-card > p:not(.eyebrow) { flex: 1; margin: 0 0 24px; color: var(--muted); line-height: 1.65; }
 .review-entry-card .primary-button, .review-entry-card .secondary-button { margin-top: auto; }
 .term-discovery-card { border-color: rgba(35,122,87,.28); background: linear-gradient(145deg, rgba(255,255,255,.92), rgba(220,238,228,.45)); }
+.new-word-selection { margin-top: auto; width: 100%; display: grid; gap: 11px; }
+.due-review-hint { margin: 0; color: var(--muted); font-size: 13px; }
+.due-review-max { margin: 0; color: var(--muted); font-size: 12px; }
+.due-review-word-count {
+  width: 120px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: white;
+  font: inherit;
+  font-weight: 650;
+}
+.new-word-selection-actions { display: flex; gap: 8px; }
+.new-word-selection-actions .secondary-button,
+.new-word-selection-actions .primary-button { margin-top: 0; }
 .spaced-card { max-width: 720px; margin: 14px auto 0; padding: 38px; text-align: center; }
 .spaced-card h2 { margin: 18px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(48px, 8vw, 76px); font-weight: 520; letter-spacing: -.04em; }
 .spaced-card .secondary-button { margin-top: 30px; }

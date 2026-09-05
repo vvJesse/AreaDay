@@ -189,18 +189,21 @@
             <h2 id="dueReviewHeadline">正在读取复习队列</h2>
             <p id="dueReviewDescription">这里包含已经进入学习计划并在今天到期的生词和术语。</p>
             <button id="startDueReviewButton" class="primary-button" type="button">开始今日复习</button>
+            <div id="newWordSelectionPanel" class="new-word-selection" hidden>
+              <p id="newWordSelectionHint" class="due-review-hint">选择今天要学习的新词数量</p>
+              <input id="dueReviewNewWordCountInput" class="due-review-word-count" type="number" min="1" step="1" />
+              <p id="dueReviewNewWordHint" class="due-review-max"></p>
+              <div class="new-word-selection-actions">
+                <button id="cancelNewWordSelectionButton" class="secondary-button" type="button">返回</button>
+                <button id="confirmNewWordSelectionButton" class="primary-button" type="button">开始学习</button>
+              </div>
+            </div>
           </article>
           <article class="card review-entry-card term-discovery-card">
             <p class="eyebrow">可选 · 新术语</p>
             <h2 id="termDiscoveryHeadline">今天也可以认识几个新术语</h2>
             <p id="termDiscoveryDescription">每次只看5个。只有你选择“需要学习”的术语才会进入复习。</p>
             <button id="startTermCheckButton" class="secondary-button" type="button">看看今天的5个术语</button>
-          </article>
-          <article class="card review-entry-card term-discovery-card">
-            <p class="eyebrow">可选 · 新词</p>
-            <h2 id="newWordDiscoveryHeadline">今天也可以学几个领域新词</h2>
-            <p id="newWordDiscoveryDescription">词义已在建立领域时准备好；不需要先生成研究简报。</p>
-            <button id="startNewWordCheckButton" class="secondary-button" type="button">看看今天的5个新词</button>
           </article>
         </div>
         <section id="reviewSession" class="card spaced-card" hidden><p id="reviewKind" class="eyebrow">现在回想一下</p><h2 id="reviewWord">—</h2><p id="reviewPos" class="part-of-speech"></p><button id="revealReviewButton" class="secondary-button" type="button">显示含义和语境</button><div id="reviewAnswer" class="review-answer" hidden><p id="reviewMeaningEn" class="meaning-en"></p><strong id="reviewMeaning"></strong><p id="reviewContext"></p><a id="reviewSource" target="_blank" rel="noreferrer"></a></div><div id="reviewRatings" class="review-ratings" hidden><button data-rating="again" class="rating again">忘了</button><button data-rating="hard" class="rating hard">勉强想起来</button><button data-rating="good" class="rating good">记得</button></div><button id="masterReviewButton" class="master-action" type="button">我已掌握，不再复习</button></section>
