@@ -26,6 +26,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import open_workbench as launcher  # noqa: E402
+from vocabulary_cards import card_id  # noqa: E402
 
 
 def identity(
@@ -100,6 +101,30 @@ def create_minimal_completed_workspace(
         encoding="utf-8",
     )
     (analysis / "papers.jsonl").write_text("", encoding="utf-8")
+    (analysis / "vocabulary-card-catalog.jsonl").write_text(
+        "".join(
+            json.dumps(
+                {
+                    "card_id": card_id(lemma, "noun"),
+                    "sense_key": card_id(lemma, "noun"),
+                    "lemma": lemma,
+                    "part_of_speech": "noun",
+                    "meaning_en": "Synthetic definition.",
+                    "meaning_zh": "合成中文释义。",
+                    "meaning_origin": "agent",
+                    "source_paper_id": "W1",
+                    "source_title": "Synthetic source",
+                    "source_url": "https://example.invalid/source",
+                    "context": "Synthetic context.",
+                    "total_count": 40 - index,
+                    "document_count": 10,
+                    "document_share": 0.5,
+                }
+            ) + "\n"
+            for index, lemma in enumerate(lemmas)
+        ),
+        encoding="utf-8",
+    )
     (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
     (analysis / "terminology-explanations.json").write_text("{}\n", encoding="utf-8")
     (analysis / "host-review-summary.json").write_text(

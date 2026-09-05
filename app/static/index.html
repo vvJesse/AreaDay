@@ -196,6 +196,12 @@
             <p id="termDiscoveryDescription">每次只看5个。只有你选择“需要学习”的术语才会进入复习。</p>
             <button id="startTermCheckButton" class="secondary-button" type="button">看看今天的5个术语</button>
           </article>
+          <article class="card review-entry-card term-discovery-card">
+            <p class="eyebrow">可选 · 新词</p>
+            <h2 id="newWordDiscoveryHeadline">今天也可以学几个领域新词</h2>
+            <p id="newWordDiscoveryDescription">词义已在建立领域时准备好；不需要先生成研究简报。</p>
+            <button id="startNewWordCheckButton" class="secondary-button" type="button">看看今天的5个新词</button>
+          </article>
         </div>
         <section id="reviewSession" class="card spaced-card" hidden><p id="reviewKind" class="eyebrow">现在回想一下</p><h2 id="reviewWord">—</h2><p id="reviewPos" class="part-of-speech"></p><button id="revealReviewButton" class="secondary-button" type="button">显示含义和语境</button><div id="reviewAnswer" class="review-answer" hidden><p id="reviewMeaningEn" class="meaning-en"></p><strong id="reviewMeaning"></strong><p id="reviewContext"></p><a id="reviewSource" target="_blank" rel="noreferrer"></a></div><div id="reviewRatings" class="review-ratings" hidden><button data-rating="again" class="rating again">忘了</button><button data-rating="hard" class="rating hard">勉强想起来</button><button data-rating="good" class="rating good">记得</button></div><button id="masterReviewButton" class="master-action" type="button">我已掌握，不再复习</button></section>
         <section id="termCheckSession" class="card term-check-session" hidden>
@@ -216,6 +222,25 @@
           <span class="empty-icon">✓</span><h2>这一组术语已经看完</h2>
           <p id="termCheckResult">正在汇总结果。</p>
           <div class="term-check-complete-actions"><button id="checkMoreTermsButton" class="secondary-button" type="button">今天再看5个</button><button id="finishTermCheckButton" class="primary-button" type="button">返回今日复习</button></div>
+        </section>
+        <section id="newWordCheckSession" class="card term-check-session" hidden>
+          <div class="term-check-top"><span id="newWordCheckProgress">1 / 5</span><button id="exitNewWordCheckButton" class="text-button" type="button">结束本轮</button></div>
+          <p class="eyebrow">看看这个词是否已经熟悉</p>
+          <h2 id="newWordCheckName">—</h2>
+          <p id="newWordCheckPos" class="part-of-speech"></p>
+          <p id="newWordCheckMeaningEn" class="term-check-meaning-en"></p>
+          <p id="newWordCheckMeaningZh" class="term-check-meaning-zh"></p>
+          <div class="term-check-evidence"><p id="newWordCheckContext"></p><a id="newWordCheckSource" target="_blank" rel="noreferrer"></a></div>
+          <div class="term-check-actions">
+            <button id="newWordCheckMastered" type="button">已经会了，不加入复习</button>
+            <button id="newWordCheckLearning" class="primary-button" type="button">需要学习，加入复习</button>
+            <button id="newWordCheckSkip" class="text-button" type="button">这次跳过</button>
+          </div>
+        </section>
+        <section id="newWordCheckComplete" class="card term-check-complete" hidden>
+          <span class="empty-icon">✓</span><h2>这一组新词已经看完</h2>
+          <p id="newWordCheckResult">正在汇总结果。</p>
+          <div class="term-check-complete-actions"><button id="checkMoreNewWordsButton" class="secondary-button" type="button">今天再看5个</button><button id="finishNewWordCheckButton" class="primary-button" type="button">返回今日复习</button></div>
         </section>
       </section>
 

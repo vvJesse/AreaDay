@@ -2,10 +2,11 @@ const byId = (id) => document.querySelector(`#${id}`);
 const all = (selector) => [...document.querySelectorAll(selector)];
 const formatCount = (value) => new Intl.NumberFormat("zh-CN").format(value || 0);
 const formatPercent = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value || 0);
-const EXPECTED_API_VERSION = 5;
+const EXPECTED_API_VERSION = 6;
 const TERMS_PER_PAGE = 20;
 const BRIEFS_PER_PAGE = 2;
 const TERM_CHECK_BATCH_SIZE = 5;
+const NEW_WORD_CHECK_BATCH_SIZE = 5;
 
 const views = {
   vocabulary: byId("vocabularyView"),
@@ -46,6 +47,11 @@ let termCheckBatch = [];
 let termCheckIndex = 0;
 let termCheckResults = { mastered: 0, learning: 0, skipped: 0 };
 let termCheckSkippedThisVisit = new Set();
+let newWordCards = [];
+let newWordCheckBatch = [];
+let newWordCheckIndex = 0;
+let newWordCheckResults = { mastered: 0, learning: 0, skipped: 0 };
+let newWordCheckSkippedThisVisit = new Set();
 let busy = false;
 let thresholdTimer = null;
 let thresholdRequestId = 0;
@@ -831,8 +837,8 @@ function renderPaperVocabulary(paper) {
   byId("startPreheatButton").disabled = paper.preheat_started;
   byId("startPreheatButton").textContent = paper.preheat_started ? "已开始预热" : "开始预热并安排生词";
   for (const word of paper.vocabulary) {
-    if (!word.meaning_en || !word.meaning_zh || !word.context) {
-      throw new Error(`论文词汇 ${word.lemma || "未命名"} 缺少来源对齐的解释或语境`);
+    if (!word.meaning_zh || !word.context) {
+      throw new Error(`论文词汇 ${word.lemma || "未命名"} 缺少固定中文解释或来源语境`);
     }
     const row = document.createElement("article");
     row.className = `vocabulary-row${word.global_status === "mastered" ? " vocabulary-known" : ""}`;
@@ -840,7 +846,7 @@ function renderPaperVocabulary(paper) {
     const lemma = document.createElement("strong"); lemma.textContent = word.lemma;
     const pos = document.createElement("small"); pos.textContent = word.part_of_speech || word.kind || "";
     head.append(lemma, pos);
-    const meaningEn = document.createElement("p"); meaningEn.className = "meaning-en"; meaningEn.textContent = word.meaning_en;
+    const meaningEn = document.createElement("p"); meaningEn.className = "meaning-en"; meaningEn.textContent = word.meaning_en; meaningEn.hidden = !word.meaning_en;
     const meaning = document.createElement("p"); meaning.textContent = word.meaning_zh;
     const context = document.createElement("div"); context.className = "vocabulary-context"; context.textContent = word.context;
     const actions = document.createElement("div"); actions.className = "vocabulary-row-actions";
@@ -899,6 +905,8 @@ function showReviewHub() {
   byId("reviewSession").hidden = true;
   byId("termCheckSession").hidden = true;
   byId("termCheckComplete").hidden = true;
+  byId("newWordCheckSession").hidden = true;
+  byId("newWordCheckComplete").hidden = true;
 }
 
 function renderDueReviewEntry(count) {
@@ -949,6 +957,27 @@ function renderTermDiscoveryCard() {
     : "这次已经看完可选术语";
 }
 
+function availableNewWordCards() {
+  return newWordCards.filter((card) => (
+    card.global_status === "new" && !newWordCheckSkippedThisVisit.has(card.card_id)
+  ));
+}
+
+function renderNewWordDiscoveryCard() {
+  const available = availableNewWordCards();
+  if (!available.length) {
+    setText("newWordDiscoveryHeadline", "这次没有更多待确认的新词");
+    setText("newWordDiscoveryDescription", "你已看完当前优先的新词，之后仍可随时回来继续学习。");
+    byId("startNewWordCheckButton").disabled = true;
+    byId("startNewWordCheckButton").textContent = "暂时没有新词";
+    return;
+  }
+  setText("newWordDiscoveryHeadline", `可以认识 ${Math.min(NEW_WORD_CHECK_BATCH_SIZE, available.length)} 个领域新词`);
+  setText("newWordDiscoveryDescription", "释义和原文语境已在建立领域时准备好；只有你选择“需要学习”的词才会进入复习。");
+  byId("startNewWordCheckButton").disabled = false;
+  byId("startNewWordCheckButton").textContent = `看看今天的 ${Math.min(NEW_WORD_CHECK_BATCH_SIZE, available.length)} 个新词`;
+}
+
 function renderCurrentReviewItem() {
   currentReviewWord = dueReviewItems[0] || null;
   if (!currentReviewWord) {
@@ -962,10 +991,13 @@ function renderCurrentReviewItem() {
   byId("reviewSession").hidden = false;
   byId("termCheckSession").hidden = true;
   byId("termCheckComplete").hidden = true;
+  byId("newWordCheckSession").hidden = true;
+  byId("newWordCheckComplete").hidden = true;
   setText("reviewKind", currentReviewWord.item_type === "term" ? "领域术语" : "领域生词");
   setText("reviewWord", currentReviewWord.display_form);
   setText("reviewPos", currentReviewWord.part_of_speech || "");
   setText("reviewMeaningEn", currentReviewWord.meaning_en);
+  byId("reviewMeaningEn").hidden = !currentReviewWord.meaning_en;
   setText("reviewMeaning", currentReviewWord.meaning_zh);
   setText("reviewContext", currentReviewWord.context);
   setText("reviewSource", `来源：${currentReviewWord.source_title} ↗`);
@@ -978,16 +1010,21 @@ function renderCurrentReviewItem() {
 }
 
 async function loadReview({ continueSession = false } = {}) {
-  const data = await request("/api/review/due");
+  const [data, newWords] = await Promise.all([
+    request("/api/review/due"),
+    request("/api/learning/new-words?limit=100"),
+  ]);
   dueReviewItems = data.words;
+  newWordCards = newWords.cards;
   updateNavDueCount(data.count);
   renderDueReviewEntry(data.count);
   renderTermDiscoveryCard();
+  renderNewWordDiscoveryCard();
   setText(
     "reviewSummary",
     data.count
-      ? `今天有 ${data.count} 个学习项目到期，也可以顺便确认几个新术语。`
-      : "今天没有到期内容，也可以顺便认识几个新术语。",
+      ? `今天有 ${data.count} 个学习项目到期，也可以顺便确认几个新术语或新词。`
+      : "今天没有到期内容，也可以顺便认识几个新术语或新词。",
   );
   if (continueSession && data.count > 0) {
     renderCurrentReviewItem();
@@ -1027,6 +1064,8 @@ function startTermCheck() {
   byId("reviewHub").hidden = true;
   byId("reviewSession").hidden = true;
   byId("termCheckComplete").hidden = true;
+  byId("newWordCheckSession").hidden = true;
+  byId("newWordCheckComplete").hidden = true;
   byId("termCheckSession").hidden = false;
   renderTermCheckCurrent();
 }
@@ -1035,6 +1074,7 @@ function showTermCheckComplete() {
   byId("reviewHub").hidden = true;
   byId("reviewSession").hidden = true;
   byId("termCheckSession").hidden = true;
+  byId("newWordCheckSession").hidden = true;
   byId("termCheckComplete").hidden = false;
   setText(
     "termCheckResult",
@@ -1043,6 +1083,82 @@ function showTermCheckComplete() {
   const remaining = newTermCandidates().length;
   byId("checkMoreTermsButton").hidden = remaining === 0;
   byId("checkMoreTermsButton").textContent = `今天再看 ${Math.min(TERM_CHECK_BATCH_SIZE, remaining)} 个`;
+}
+
+function renderNewWordCheckCurrent() {
+  const card = newWordCheckBatch[newWordCheckIndex];
+  if (!card) {
+    showNewWordCheckComplete();
+    return;
+  }
+  setText("newWordCheckProgress", `${newWordCheckIndex + 1} / ${newWordCheckBatch.length}`);
+  setText("newWordCheckName", card.lemma);
+  setText("newWordCheckPos", card.part_of_speech || "");
+  setText("newWordCheckMeaningEn", card.meaning_en || "");
+  byId("newWordCheckMeaningEn").hidden = !card.meaning_en;
+  setText("newWordCheckMeaningZh", card.meaning_zh);
+  setText("newWordCheckContext", card.context);
+  setText("newWordCheckSource", `来源：${card.source_title} ↗`);
+  byId("newWordCheckSource").href = card.source_url;
+}
+
+function startNewWordCheck() {
+  const candidates = availableNewWordCards();
+  if (!candidates.length) return;
+  newWordCheckBatch = candidates.slice(0, NEW_WORD_CHECK_BATCH_SIZE);
+  newWordCheckIndex = 0;
+  newWordCheckResults = { mastered: 0, learning: 0, skipped: 0 };
+  byId("reviewHub").hidden = true;
+  byId("reviewSession").hidden = true;
+  byId("termCheckSession").hidden = true;
+  byId("termCheckComplete").hidden = true;
+  byId("newWordCheckComplete").hidden = true;
+  byId("newWordCheckSession").hidden = false;
+  renderNewWordCheckCurrent();
+}
+
+function showNewWordCheckComplete() {
+  byId("reviewHub").hidden = true;
+  byId("reviewSession").hidden = true;
+  byId("termCheckSession").hidden = true;
+  byId("termCheckComplete").hidden = true;
+  byId("newWordCheckSession").hidden = true;
+  byId("newWordCheckComplete").hidden = false;
+  setText(
+    "newWordCheckResult",
+    `${newWordCheckResults.learning} 个加入复习 · ${newWordCheckResults.mastered} 个已经掌握 · ${newWordCheckResults.skipped} 个这次跳过`,
+  );
+  const remaining = availableNewWordCards().length;
+  byId("checkMoreNewWordsButton").hidden = remaining === 0;
+  byId("checkMoreNewWordsButton").textContent = `今天再看 ${Math.min(NEW_WORD_CHECK_BATCH_SIZE, remaining)} 个`;
+}
+
+async function answerNewWordCheck(action) {
+  const card = newWordCheckBatch[newWordCheckIndex];
+  if (!card || busy) return;
+  busy = true;
+  all("#newWordCheckSession button").forEach((button) => { button.disabled = true; });
+  try {
+    if (action === "mastered" || action === "learning") {
+      const result = await request("/api/learning/new-word-status", {
+        method: "POST",
+        body: JSON.stringify({ card_id: card.card_id, status: action }),
+      });
+      card.item_id = result.item_id;
+      card.global_status = action;
+      appState.continuous = result.continuous;
+      newWordCheckResults[action] += 1;
+    } else {
+      newWordCheckSkippedThisVisit.add(card.card_id);
+      newWordCheckResults.skipped += 1;
+    }
+    newWordCheckIndex += 1;
+    renderNewWordCheckCurrent();
+  } catch (error) { showError(error); }
+  finally {
+    busy = false;
+    all("#newWordCheckSession button").forEach((button) => { button.disabled = false; });
+  }
 }
 
 async function answerTermCheck(action) {
@@ -1176,6 +1292,13 @@ byId("termCheckSkip").addEventListener("click", () => answerTermCheck("skipped")
 byId("exitTermCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
 byId("checkMoreTermsButton").addEventListener("click", startTermCheck);
 byId("finishTermCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
+byId("startNewWordCheckButton").addEventListener("click", startNewWordCheck);
+byId("newWordCheckMastered").addEventListener("click", () => answerNewWordCheck("mastered"));
+byId("newWordCheckLearning").addEventListener("click", () => answerNewWordCheck("learning"));
+byId("newWordCheckSkip").addEventListener("click", () => answerNewWordCheck("skipped"));
+byId("exitNewWordCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
+byId("checkMoreNewWordsButton").addEventListener("click", startNewWordCheck);
+byId("finishNewWordCheckButton").addEventListener("click", () => loadReview({ continueSession: false }).catch(showError));
 all("[data-rating]").forEach((button) => button.addEventListener("click", async () => {
   if (!currentReviewWord || busy) return;
   busy = true;

@@ -46,6 +46,16 @@ Supported release platforms:
 
 Intel Macs are not currently supported.
 
+## Learning without a brief
+
+After the 30-question calibration, **今日复习** can offer a small set of
+priority domain words even when no research brief has been generated. Their
+Chinese meanings, optional English meanings, and an original-paper context are
+prepared during domain setup, before the calibration page opens. Choosing
+“需要学习” adds a word to the local review schedule; choosing “已经会了” keeps it
+out. A later brief may add a new paper context for the same word, but cannot
+replace its established meaning.
+
 ## Safety & Privacy
 
 - Papers, PDFs, extracted text, notes, profiles, and vocabulary data are stored

@@ -821,7 +821,8 @@ def prepare(workspace: Path, selection_path: Path) -> dict[str, Any]:
         "agent_output_path": str(run_dir / "brief-agent-output.json"),
         "agent_requirements": [
             "Produce exactly the prepared recommendations and preserve their item_type labels.",
-            "Generate all value explanations, weekly summary text, vocabulary meanings, and shadow previews as the current Codex/Work Buddy agent; do not call an external model API.",
+            "Generate all value explanations, weekly summary text, and shadow previews as the current Codex/Work Buddy agent; do not call an external model API.",
+            "For vocabulary, provide only the supplied lemma, part of speech, a short source-grounded context, and evidence_context_id. Do not write or revise meanings: finalization attaches the pre-calibration vocabulary-card catalog meanings.",
             "Use the temporary full text for source-level reading and vocabulary context, not title/abstract alone.",
             "Preserve each item's source_provenance object exactly in the finished item.",
             "Each shadow preview must naturally cover its supplied vocabulary and terminology, splitting into several short paragraphs when needed.",

@@ -138,30 +138,89 @@ class InitializationControllerTests(unittest.TestCase):
             self.assertEqual(payload["next_action"]["input"], str(packet))
             self.assertNotIn("input_sha256", payload["next_action"])
 
-    def test_combined_domain_review_has_both_inputs_and_one_output(self) -> None:
+    def test_learning_asset_review_has_both_inputs_and_one_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             controller = InitializationController(controller_args(root))
             controller.workspace.mkdir(parents=True)
-            vocabulary = controller.workspace / "orthography-review-input.json"
             terminology = controller.workspace / "terminology-review-input.json"
-            vocabulary.write_text("{}\n", encoding="utf-8")
+            vocabulary_batch = controller.workspace / "vocabulary-card-review-batch.json"
             terminology.write_text("{}\n", encoding="utf-8")
+            vocabulary_batch.write_text("{}\n", encoding="utf-8")
             selection = controller.workspace / "selection.json"
 
             payload = controller._host_action(
-                "review_vocabulary_and_terminology",
-                input_paths={"vocabulary": vocabulary, "terminology": terminology},
+                "review_vocabulary_cards_and_terminology",
+                input_paths={
+                    "terminology": terminology,
+                    "vocabulary_card_review_batch": vocabulary_batch,
+                },
                 output_path=selection,
-                checkpoint="domain_review_needed",
+                checkpoint="learning_asset_review_needed",
                 instructions="Review both and resume.",
             )
 
             self.assertEqual(
                 payload["next_action"]["inputs"],
-                {"vocabulary": str(vocabulary), "terminology": str(terminology)},
+                {
+                    "terminology": str(terminology),
+                    "vocabulary_card_review_batch": str(vocabulary_batch),
+                },
             )
             self.assertEqual(payload["next_action"]["output"], str(selection))
+
+    def test_orthography_review_is_requested_before_card_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            controller = InitializationController(controller_args(root))
+            analysis = controller.workspace / "analysis"
+            analysis.mkdir(parents=True)
+            (controller.workspace / "candidates.jsonl").write_text(
+                '{"candidate_id":"W1"}\n', encoding="utf-8"
+            )
+            (controller.workspace / "candidate-review-packet.jsonl").write_text(
+                '{"candidate_id":"W1"}\n', encoding="utf-8"
+            )
+            (controller.workspace / "candidate-review-selection.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            (controller.workspace / "cold-start-summary.json").write_text(
+                '{"corpus_is_usable":true}\n', encoding="utf-8"
+            )
+            (analysis / "orthography-review-input.json").write_text(
+                '{"candidates":[{"observed_lemma":"whic"}]}\n',
+                encoding="utf-8",
+            )
+            (analysis / "orthography-review-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "reviewed_candidate_count": 1,
+                        "replacement_count": 0,
+                        "drop_count": 0,
+                        "unchanged_candidate_count": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "terminology-review-input.json").write_text(
+                '{"candidates":[]}\n', encoding="utf-8"
+            )
+
+            with patch("initialize.prepare_review_input") as prepare_cards:
+                with self.assertRaises(StopIteration):
+                    controller._prepare_assets()
+
+            prepare_cards.assert_not_called()
+            status = json.loads(controller.status_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                status["next_action"]["type"], "review_vocabulary_orthography"
+            )
+            self.assertEqual(
+                status["next_action"]["input"],
+                str(analysis / "orthography-review-input.json"),
+            )
 
     def test_verified_service_is_the_only_successful_terminal_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

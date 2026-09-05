@@ -21,7 +21,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def validate_selection(
     selection: dict[str, Any], review_input: dict[str, Any]
-) -> tuple[dict[str, str], set[str]]:
+) -> tuple[dict[str, str], set[str], set[str]]:
     if selection.get("schema_version") != 1:
         raise ValueError("Orthography review must use schema_version 1")
     if selection.get("reviewer") != "current-host-agent":
@@ -35,12 +35,33 @@ def validate_selection(
         for source, target in selection.get("lemma_replacements", {}).items()
     }
     drops = {str(value).casefold() for value in selection.get("lemma_drops", [])}
-    unknown = (set(replacements) | drops) - candidates
+    keeps = {str(value).casefold() for value in selection.get("lemma_keeps", [])}
+    reviewed = set(replacements) | drops | keeps
+    unknown = reviewed - candidates
     if unknown:
         raise ValueError(f"Review contains lemmas outside the suspicious queue: {sorted(unknown)}")
-    overlap = set(replacements) & drops
+    overlap = (
+        (set(replacements) & drops)
+        | (set(replacements) & keeps)
+        | (drops & keeps)
+    )
     if overlap:
-        raise ValueError(f"Lemmas cannot be both replaced and dropped: {sorted(overlap)}")
+        raise ValueError(
+            "Lemmas cannot have more than one review decision: "
+            f"{sorted(overlap)}"
+        )
+    missing = candidates - reviewed
+    if missing:
+        preview = sorted(missing)[:20]
+        suffix = (
+            ""
+            if len(missing) <= len(preview)
+            else f" (and {len(missing) - len(preview)} more)"
+        )
+        raise ValueError(
+            "Every suspicious lemma must be explicitly kept, replaced, or dropped; "
+            f"missing decisions for: {preview}{suffix}"
+        )
     invalid_targets = [
         target
         for target in replacements.values()
@@ -48,7 +69,7 @@ def validate_selection(
     ]
     if invalid_targets:
         raise ValueError(f"Invalid canonical lemmas: {sorted(set(invalid_targets))}")
-    return replacements, drops
+    return replacements, drops, keeps
 
 
 def merge_vocabulary(
@@ -140,7 +161,7 @@ def finalize_review(workspace: Path, selection_path: Path) -> dict[str, int]:
     analysis_dir = workspace.resolve() / "analysis"
     review_input = read_json(analysis_dir / "orthography-review-input.json")
     selection = read_json(selection_path.resolve())
-    replacements, drops = validate_selection(selection, review_input)
+    replacements, drops, keeps = validate_selection(selection, review_input)
     vocabulary = read_jsonl(analysis_dir / "pre-orthography-vocabulary-map.jsonl")
     stats = read_json(analysis_dir / "corpus-stats.json")
     paper_decisions = read_jsonl(analysis_dir / "paper-decisions.jsonl")
@@ -175,11 +196,8 @@ def finalize_review(workspace: Path, selection_path: Path) -> dict[str, int]:
             "reviewed_candidate_count": len(review_input.get("candidates", [])),
             "replacement_count": len(replacements),
             "drop_count": len(drops),
-            "unchanged_candidate_count": (
-                len(review_input.get("candidates", []))
-                - len(replacements)
-                - len(drops)
-            ),
+            "explicit_keep_count": len(keeps),
+            "unchanged_candidate_count": len(keeps),
             "review_summary": selection.get("review_summary", ""),
         },
     )

@@ -87,7 +87,7 @@ the selection file must not relabel paper freshness.
    text with the user's personalized vocabulary map. Read the produced
    `agent-brief-input.json` and its temporary text paths.
 6. As Codex / Work Buddy, write all research-value explanations, the brief
-   summary, contextual bilingual word meanings, and shadow previews. Do not call another
+   summary, source-grounded vocabulary contexts, and shadow previews. Do not call another
    model API. Produce exactly the prepared sources. Preserve truthful types:
    `new_paper`, `recent_paper`, `classic_paper`, `public_report`, or
    `research_update`.
@@ -121,12 +121,8 @@ the selection file must not relabel paper freshness.
       "vocabulary": [
         {
           "lemma": "implicature",
-          "meaning_en": "meaning suggested in conversation without being explicitly stated",
-          "meaning_zh": "会话中未直接说出但可推导的含义",
           "part_of_speech": "noun",
           "context": "A short representative source context.",
-          "sense_key": "conversationally-implied-meaning",
-          "confidence": 0.98,
           "evidence_context_id": "stable ID for this extracted source context"
         }
       ]
@@ -136,12 +132,14 @@ the selection file must not relabel paper freshness.
 ```
 
 Do not copy long source passages. An item appearing in a brief does not change
-the vocabulary state. When the user selects it and presses `开始预热`, every
+the vocabulary state. Finalization attaches the stable pre-calibration card's
+Chinese meaning, optional English meaning, and sense key; an agent must not
+write or revise them. When the user selects it and presses `开始预热`, every
 predicted unfamiliar word receives one global learning record. Existing records
-with the same lemma and sense key only gain a new source. A materially different
-sense receives its own learning item. Words marked mastered remain mastered.
+with the same card identity only gain a new source. Words marked mastered remain
+mastered.
 
-The review page keeps due FSRS work separate from new-term confirmation. Its
+The review page keeps due FSRS work separate from optional new-word and new-term confirmation. Its
 navigation badge counts only due learning items. The optional term flow presents
 five unconfirmed, host-reviewed terms at a time, prioritizing terms connected to
 the latest brief and then broader corpus coverage. `需要学习` creates a global
