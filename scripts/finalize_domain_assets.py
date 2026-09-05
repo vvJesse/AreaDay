@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finalize vocabulary and terminology together before calibration starts."""
+"""Finalize vocabulary cards and terminology after orthography review."""
 
 from __future__ import annotations
 
@@ -7,23 +7,43 @@ import argparse
 import json
 from pathlib import Path
 
-from apply_orthography_review import finalize_review as finalize_vocabulary
 from domain_registry import validate_initialized_workspace
 from finalize_host_review import finalize_review as finalize_terminology
+from orthography_contract import orthography_summary_is_complete
 from researchramp_core import read_json, utc_now, write_json
 from terminology_assets import load_finalized_terminology
+from vocabulary_cards import GLOSS_DATA_NAME, build_catalog
 
 
 def finalize_assets(workspace: Path, selection: Path) -> dict[str, object]:
     resolved = workspace.expanduser().resolve()
+    analysis = resolved / "analysis"
     review = read_json(selection.expanduser().resolve())
     if review.get("schema_version") != 1:
         raise ValueError("Combined review must use schema_version 1")
     if review.get("reviewer") != "current-host-agent":
         raise ValueError("Combined review reviewer must be current-host-agent")
 
-    vocabulary = finalize_vocabulary(resolved, selection)
+    orthography = read_json(analysis / "orthography-review-summary.json")
+    if not orthography_summary_is_complete(orthography):
+        raise ValueError("Vocabulary orthography review must be finalized first")
+    corpus_stats = read_json(analysis / "corpus-stats.json")
+    if (
+        not isinstance(corpus_stats, dict)
+        or corpus_stats.get("orthography_review_applied") is not True
+    ):
+        raise ValueError("Vocabulary orthography review must be applied first")
+    vocabulary = {
+        "vocabulary_entry_count": int(corpus_stats.get("vocabulary_entry_count") or 0),
+        "replacement_count": int(orthography.get("replacement_count") or 0),
+        "drop_count": int(orthography.get("drop_count") or 0),
+    }
     terminology = finalize_terminology(resolved, selection)
+    cards = build_catalog(
+        resolved,
+        selection,
+        Path(__file__).resolve().parents[1] / "app" / "data" / GLOSS_DATA_NAME,
+    )
     validate_initialized_workspace(resolved)
     terms, _explanations, _summary = load_finalized_terminology(
         resolved,
@@ -38,6 +58,7 @@ def finalize_assets(workspace: Path, selection: Path) -> dict[str, object]:
             **terminology,
             "loadable_terminology_count": len(terms),
         },
+        "vocabulary_cards": cards,
         "ready_for_calibration": True,
     }
     write_json(resolved / "analysis" / "domain-assets-summary.json", result)

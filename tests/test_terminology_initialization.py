@@ -24,6 +24,7 @@ from domain_registry import (  # noqa: E402
 )
 from finalize_domain_assets import finalize_assets  # noqa: E402
 from finalize_host_review import finalize_review  # noqa: E402
+from vocabulary_cards import card_id  # noqa: E402
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -38,6 +39,32 @@ SPEC.loader.exec_module(APP)
 
 def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def write_card_catalog(analysis: Path, lemmas: list[str]) -> None:
+    rows = [
+        {
+            "card_id": card_id(lemma, "noun"),
+            "sense_key": card_id(lemma, "noun"),
+            "lemma": lemma,
+            "part_of_speech": "noun",
+            "meaning_en": f"Synthetic definition for {lemma}.",
+            "meaning_zh": f"{lemma} 的合成中文解释。",
+            "meaning_origin": "agent",
+            "source_paper_id": "W1",
+            "source_title": "Synthetic paper",
+            "source_url": "https://doi.org/10.1000/synthetic",
+            "context": f"Example for {lemma}.",
+            "total_count": 10,
+            "document_count": 2,
+            "document_share": 1.0,
+        }
+        for lemma in lemmas
+    ]
+    (analysis / "vocabulary-card-catalog.jsonl").write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
 
 
 def make_workspace(root: Path) -> Path:
@@ -60,6 +87,7 @@ def make_workspace(root: Path) -> Path:
         )
     )
     (analysis / "vocabulary-map.tsv").write_text(vocabulary_rows, encoding="utf-8")
+    write_card_catalog(analysis, [f"model{index}" for index in range(30)])
     (analysis / "papers.jsonl").write_text("", encoding="utf-8")
     write_json(analysis / "orthography-review-input.json", {"candidates": []})
     write_json(
@@ -70,6 +98,8 @@ def make_workspace(root: Path) -> Path:
             "reviewed_candidate_count": 0,
             "replacement_count": 0,
             "drop_count": 0,
+            "explicit_keep_count": 0,
+            "unchanged_candidate_count": 0,
         },
     )
     write_json(
@@ -141,13 +171,25 @@ class TerminologyInitializationTests(unittest.TestCase):
                 "".join(json.dumps(item) + "\n" for item in vocabulary),
                 encoding="utf-8",
             )
+            (analysis / "vocabulary-map.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in vocabulary),
+                encoding="utf-8",
+            )
+            write_json(
+                analysis / "corpus-stats.json",
+                {
+                    "orthography_review_applied": True,
+                    "content_lemma_token_count": 300,
+                    "vocabulary_entry_count": 30,
+                },
+            )
             (analysis / "paper-decisions.jsonl").write_text(
                 json.dumps({"openalex_id": "W1", "analysis_decision": "include"})
                 + "\n",
                 encoding="utf-8",
             )
             (analysis / "papers.jsonl").write_text(
-                json.dumps({"openalex_id": "W1", "title": "Synthetic paper"}) + "\n",
+                json.dumps({"openalex_id": "W1", "title": "Synthetic paper", "doi": "10.1000/synthetic"}) + "\n",
                 encoding="utf-8",
             )
             term = {
@@ -166,8 +208,6 @@ class TerminologyInitializationTests(unittest.TestCase):
                 {
                     "schema_version": 1,
                     "reviewer": "current-host-agent",
-                    "lemma_replacements": {},
-                    "lemma_drops": [],
                     "terminology": {"robust analysis": 1.0},
                     "terminology_explanations": {
                         "robust analysis": {
@@ -176,6 +216,20 @@ class TerminologyInitializationTests(unittest.TestCase):
                             "concept_role": "Methodological quality criterion.",
                             "sense_key": "robust-analysis",
                         }
+                    },
+                    "vocabulary_card_review_schema_version": 3,
+                    "vocabulary_card_glosses": {
+                        lemma: {
+                            "meaning_en": f"Synthetic definition for {lemma}.",
+                            "meaning_zh": f"{lemma} 的合成中文解释。",
+                            "sense_key": f"synthetic-{lemma}",
+                            "evidence": {
+                                "kind": "representative_sentence",
+                                "value": f"Example for {lemma}.",
+                            },
+                            "context_rationale": f"The example explicitly uses {lemma}.",
+                        }
+                        for lemma in (f"model{index}" for index in range(30))
                     },
                     "review_summary": "Reviewed together.",
                 },
@@ -189,6 +243,7 @@ class TerminologyInitializationTests(unittest.TestCase):
                 result["terminology"]["loadable_terminology_count"], 1
             )
             self.assertTrue((analysis / "domain-assets-summary.json").is_file())
+            self.assertTrue((analysis / "vocabulary-card-catalog.jsonl").is_file())
             validate_initialized_workspace(workspace)
 
     def test_library_can_serve_one_fully_prepared_domain_before_calibration(self) -> None:

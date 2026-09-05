@@ -196,6 +196,7 @@ def finalize_review(workspace: Path, selection_path: Path) -> dict[str, int]:
             "reviewed_candidate_count": len(review_input.get("candidates", [])),
             "replacement_count": len(replacements),
             "drop_count": len(drops),
+            "explicit_keep_count": len(keeps),
             "unchanged_candidate_count": len(keeps),
             "review_summary": selection.get("review_summary", ""),
         },

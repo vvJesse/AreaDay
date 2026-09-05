@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from continuous_state import ContinuousStore  # noqa: E402
 from domain_registry import DomainRegistry  # noqa: E402
+from vocabulary_cards import card_id  # noqa: E402
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -79,6 +80,53 @@ def create_completed_workspace(root: Path, domain_id: str, label: str) -> tuple:
         encoding="utf-8",
     )
     (analysis / "papers.jsonl").write_text("", encoding="utf-8")
+    card_rows = [
+        {
+            "card_id": card_id(f"sharedword{index}", "noun"),
+            "sense_key": card_id(f"sharedword{index}", "noun"),
+            "lemma": f"sharedword{index}",
+            "part_of_speech": "noun",
+            "meaning_en": "Synthetic word definition.",
+            "meaning_zh": "合成词汇释义。",
+            "meaning_origin": "agent",
+            "source_paper_id": "W1",
+            "source_title": "Synthetic source",
+            "source_url": "https://example.invalid/source",
+            "context": "Synthetic source context.",
+            "total_count": 40 - index,
+            "document_count": max(2, 20 - index // 2),
+            "document_share": 0.2,
+        }
+        for index in range(30)
+    ]
+    card_rows.extend(
+        [
+            {
+                "card_id": card_id(lemma, "noun"),
+                "sense_key": card_id(lemma, "noun"),
+                "lemma": lemma,
+                "part_of_speech": "noun",
+                "meaning_en": meaning_en,
+                "meaning_zh": meaning_zh,
+                "meaning_origin": "agent",
+                "source_paper_id": "W1",
+                "source_title": "Synthetic source",
+                "source_url": "https://example.invalid/source",
+                "context": f"Synthetic source context for {lemma}.",
+                "total_count": 10,
+                "document_count": 2,
+                "document_share": 0.2,
+            }
+            for lemma, meaning_en, meaning_zh in (
+                ("alpha", "A synthetic term used in the Alpha test domain.", "测试领域 Alpha 中使用的合成术语"),
+                ("isolation", "The separation of distinct data spaces.", "不同数据空间彼此分离"),
+                ("provenance", "A verifiable link between content and its source.", "内容及其来源之间可验证的对应关系"),
+            )
+        ]
+    )
+    (analysis / "vocabulary-card-catalog.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in card_rows), encoding="utf-8"
+    )
     (analysis / "first-terminology-map.jsonl").write_text("", encoding="utf-8")
     (analysis / "terminology-explanations.json").write_text("{}\n", encoding="utf-8")
     (analysis / "host-review-summary.json").write_text(
@@ -397,6 +445,31 @@ class DomainRoutingHttpTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("版本不一致", data["error"])
         self.assertEqual(beta_store.summary(), before)
+
+    def test_new_word_routes_use_precalibrated_cards_without_a_preheat_action(self) -> None:
+        headers = {
+            "X-ResearchRamp-API-Version": str(APP.APP_API_VERSION),
+            "X-ResearchRamp-Domain": "alpha",
+        }
+        status, candidates = self.request(
+            "GET", "/api/learning/new-words?domain_id=alpha&limit=5", headers=headers
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(candidates["domain_id"], "alpha")
+        self.assertGreater(candidates["count"], 0)
+        card = candidates["cards"][0]
+        self.assertEqual(card["classification"], "likely_unknown")
+        self.assertTrue(card["meaning_zh"])
+
+        status, result = self.request(
+            "POST",
+            "/api/learning/new-word-status?domain_id=alpha",
+            {"card_id": card["card_id"], "status": "learning"},
+            headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(result["item_id"])
+        self.assertEqual(result["continuous"]["learning_count"], 1)
 
 
 if __name__ == "__main__":

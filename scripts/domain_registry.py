@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from terminology_assets import load_finalized_terminology
+from vocabulary_cards import load_catalog
+from orthography_contract import orthography_summary_is_complete
 from migrate_areaday_data import areaday_data_root
 from remote_calibration import (
     InvalidCalibrationData,
@@ -111,9 +113,7 @@ def _validate_corpus_assets(
                 f"Invalid orthography review in workspace: {resolved}"
             ) from error
         if (
-            not isinstance(summary, dict)
-            or summary.get("schema_version") != 1
-            or summary.get("reviewer") != "current-host-agent"
+            not orthography_summary_is_complete(summary)
             or not isinstance(stats, dict)
             or stats.get("orthography_review_applied") is not True
         ):
@@ -125,6 +125,7 @@ def _validate_corpus_assets(
         resolved,
         require_review_summary=require_review_summary,
     )
+    load_catalog(resolved)
 
 
 def validate_initialized_workspace(workspace: Path) -> dict[str, Any]:

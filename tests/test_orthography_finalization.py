@@ -11,6 +11,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from apply_orthography_review import validate_selection  # noqa: E402
+from orthography_contract import orthography_summary_is_complete  # noqa: E402
 
 
 class OrthographySelectionTests(unittest.TestCase):
@@ -61,6 +62,31 @@ class OrthographySelectionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "more than one review decision.*whic"):
             validate_selection(selection, self.review_input)
+
+    def test_old_implicit_keep_summary_is_not_complete(self) -> None:
+        old_summary = {
+            "schema_version": 1,
+            "reviewer": "current-host-agent",
+            "reviewed_candidate_count": 458,
+            "replacement_count": 5,
+            "drop_count": 11,
+            "unchanged_candidate_count": 442,
+        }
+
+        self.assertFalse(orthography_summary_is_complete(old_summary))
+
+    def test_explicit_decision_counts_are_complete(self) -> None:
+        summary = {
+            "schema_version": 1,
+            "reviewer": "current-host-agent",
+            "reviewed_candidate_count": 458,
+            "replacement_count": 5,
+            "drop_count": 200,
+            "explicit_keep_count": 253,
+            "unchanged_candidate_count": 253,
+        }
+
+        self.assertTrue(orthography_summary_is_complete(summary))
 
 
 if __name__ == "__main__":
