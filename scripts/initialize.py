@@ -398,6 +398,13 @@ class InitializationController:
                     supplied_lemmas = {
                         str(lemma).strip().casefold() for lemma in raw_glosses
                     }
+                    raw_drops = existing_selection.get("vocabulary_card_drops", [])
+                    if isinstance(raw_drops, list):
+                        supplied_lemmas.update(
+                            str(lemma).strip().casefold() for lemma in raw_drops
+                        )
+                    else:
+                        selection_is_current = False
                     if supplied_lemmas - expected_lemmas:
                         selection_is_current = False
                         supplied_lemmas = set()
@@ -468,16 +475,19 @@ class InitializationController:
                             "Also review the terminology input and create one schema_version=1 "
                             "selection with reviewer=current-host-agent, terminology, "
                             "terminology_explanations, vocabulary_card_glosses, "
+                            "vocabulary_card_drops, "
                             if not selection_is_current
                             else "Read the existing selection, preserve all terminology and "
-                            "other vocabulary_card_glosses, and add or correct this batch with "
+                            "other vocabulary_card_glosses and vocabulary_card_drops, and add "
+                            "or correct this batch with "
                         )
                         + f"vocabulary_card_review_schema_version={REVIEW_SCHEMA_VERSION}, "
                         "and review_summary. The batch records are in top-level .candidates; "
-                        "verify .candidate_count, review each item semantically, and include its "
-                        "exact evidence plus candidate-specific context_rationale. Never copy "
-                        "the first dictionary entry across the batch. Corpus acronym expansions "
-                        "and representative sentences control conflicting senses. Write the "
+                        "verify .candidate_count, and either gloss each item with a sense_key "
+                        "and brief context_rationale or put an item that cannot be judged "
+                        "confidently in vocabulary_card_drops. Never copy the first dictionary "
+                        "entry across the batch. Corpus acronym expansions and representative "
+                        "sentences control conflicting senses. Write the "
                         "updated selection and immediately resume; the controller will supply "
                         "the next bounded batch until exact coverage is complete."
                     ),

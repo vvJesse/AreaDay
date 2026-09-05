@@ -33,17 +33,19 @@ def finalize_assets(workspace: Path, selection: Path) -> dict[str, object]:
         or corpus_stats.get("orthography_review_applied") is not True
     ):
         raise ValueError("Vocabulary orthography review must be applied first")
-    vocabulary = {
-        "vocabulary_entry_count": int(corpus_stats.get("vocabulary_entry_count") or 0),
-        "replacement_count": int(orthography.get("replacement_count") or 0),
-        "drop_count": int(orthography.get("drop_count") or 0),
-    }
     terminology = finalize_terminology(resolved, selection)
     cards = build_catalog(
         resolved,
         selection,
         Path(__file__).resolve().parents[1] / "app" / "data" / GLOSS_DATA_NAME,
     )
+    corpus_stats = read_json(analysis / "corpus-stats.json")
+    vocabulary = {
+        "vocabulary_entry_count": int(corpus_stats.get("vocabulary_entry_count") or 0),
+        "replacement_count": int(orthography.get("replacement_count") or 0),
+        "drop_count": int(orthography.get("drop_count") or 0),
+        "card_review_drop_count": int(cards.get("drop_count") or 0),
+    }
     validate_initialized_workspace(resolved)
     terms, _explanations, _summary = load_finalized_terminology(
         resolved,

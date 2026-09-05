@@ -194,12 +194,13 @@ supplied `resume` command in this same task. The three possible host actions are
    The vocabulary-card input array is the top-level `.candidates` field; there
    is no `.vocabulary_cards` field. Verify its length against `candidate_count`
    before reviewing it. The controller supplies bounded batches sequentially;
-   preserve prior reviewed entries and add only the supplied batch. Keep stable
+   preserve prior glosses and drops and add only the supplied batch. Keep stable
    shared multiword concepts supported by a representative source-paper
    sentence, supplying complete English meaning, Chinese meaning, concept role,
-   and stable sense key. Supply a concise Chinese gloss keyed by the already
-   finalized canonical lemma for every vocabulary-card candidate, together with
-   exact cited evidence and a candidate-specific context rationale. Never
+   and stable sense key. For every vocabulary-card candidate whose meaning can
+   be determined confidently, supply a concise Chinese gloss, stable sense key,
+   and brief rationale keyed by its finalized canonical lemma. Put uncertain or
+   noisy lemmas in `vocabulary_card_drops` instead of forcing a gloss. Never
    bulk-fill review output from the first dictionary entry. For a unique corpus
    acronym expansion, use that expansion as the exact English meaning and its
    suggested sense key; a conflicting dictionary abbreviation must be rejected.

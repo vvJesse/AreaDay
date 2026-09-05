@@ -180,10 +180,11 @@ input file's top-level `.candidates` array; `vocabulary_card_review_batch` is
 only the controller's label for that input path, not a JSON field. Check
 `.candidate_count == (.candidates | length)` before reviewing. Work through a
 large review only through the bounded batch supplied on each controller resume,
-preserving prior reviewed entries, and make a corpus-grounded sense decision
+preserving prior glosses and drops, and make a corpus-grounded sense decision
 for each item. Never generate the review by taking the first dictionary meaning
-or by filling fields merely to make finalization continue. Every output gloss must
-cite exact candidate evidence and include a candidate-specific rationale. A
+or by filling fields merely to make finalization continue. For each candidate,
+either write a contextual gloss with a stable sense key and a brief rationale,
+or put an uncertain or noisy lemma in `vocabulary_card_drops`. A
 unique `acronym_expansion` controls the exact English meaning and suggested
 `sense_key`; it overrides a conflicting dictionary abbreviation. If exhaustive
 semantic review is not complete, do not write a nominally complete selection

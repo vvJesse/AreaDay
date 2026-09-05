@@ -20,6 +20,7 @@ from vocabulary_cards import (  # noqa: E402
     card_id,
     load_catalog,
     prepare_review_input,
+    validate_review_batch,
 )
 
 
@@ -288,10 +289,6 @@ class VocabularyCardBuildTests(unittest.TestCase):
                             "beta": {
                                 "meaning_zh": "贝塔的人工释义。",
                                 "sense_key": "beta-concept",
-                                "evidence": {
-                                    "kind": "representative_sentence",
-                                    "value": "Beta is here.",
-                                },
                                 "context_rationale": "The sentence uses beta as the named concept.",
                             }
                         }
@@ -321,6 +318,7 @@ class VocabularyCardBuildTests(unittest.TestCase):
                     "ecdict_count": 1,
                     "agent_count": 1,
                     "english_count": 1,
+                    "drop_count": 0,
                 },
             )
             self.assertEqual(cards[0]["meaning_origin"], "ecdict")
@@ -519,6 +517,7 @@ class VocabularyCardBuildTests(unittest.TestCase):
                 json.dumps(
                     {
                         "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_drops": [],
                         "vocabulary_card_glosses": {
                             "llm": {
                                 "meaning_en": "Large language model.",
@@ -660,6 +659,7 @@ class VocabularyCardBuildTests(unittest.TestCase):
                 json.dumps(
                     {
                         "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_drops": [],
                         "vocabulary_card_glosses": {
                             "llm": {
                                 "meaning_en": "large language model",
@@ -679,6 +679,125 @@ class VocabularyCardBuildTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "conflicts with the corpus"):
                 build_catalog(workspace, selection, dictionary)
+
+    def test_uncertain_candidate_can_be_dropped_without_a_gloss(self) -> None:
+        candidate = {
+            "observed_lemma": "geotagging",
+            "representative_sentences": [],
+            "dictionary_candidates": [],
+            "acronym_expansions": [],
+        }
+        selection = {
+            "vocabulary_card_review_schema_version": 3,
+            "vocabulary_card_glosses": {},
+            "vocabulary_card_drops": ["geotagging"],
+        }
+
+        validate_review_batch(selection, [candidate])
+
+        with self.assertRaisesRegex(ValueError, "either glossed or dropped"):
+            validate_review_batch(
+                {
+                    "vocabulary_card_review_schema_version": 3,
+                    "vocabulary_card_glosses": {},
+                    "vocabulary_card_drops": [],
+                },
+                [candidate],
+            )
+
+    def test_dropped_candidate_is_removed_from_cards_and_calibration_vocabulary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "papers.jsonl",
+                [{"openalex_id": "W1", "title": "Source", "doi": "10.1000/source"}],
+            )
+            vocabulary = [
+                {
+                    "lemma": "alpha",
+                    "part_of_speech": "noun",
+                    "total_count": 5,
+                    "frequency_per_million": 10.0,
+                    "document_count": 1,
+                    "document_share": 1.0,
+                    "dispersion": 1.0,
+                    "per_document_counts": {"W1": 5},
+                    "surface_forms": [{"form": "alpha", "count": 5}],
+                    "representative_sentences": [
+                        {"openalex_id": "W1", "sentence": "Alpha is used here."}
+                    ],
+                    "source_papers": ["W1"],
+                },
+                {
+                    "lemma": "geotagging",
+                    "part_of_speech": "noun",
+                    "total_count": 3,
+                    "frequency_per_million": 6.0,
+                    "document_count": 1,
+                    "document_share": 1.0,
+                    "dispersion": 1.0,
+                    "per_document_counts": {"W1": 3},
+                    "surface_forms": [{"form": "geotagging", "count": 3}],
+                    "representative_sentences": [],
+                    "source_papers": ["W1"],
+                },
+            ]
+            write_jsonl(analysis / "vocabulary-map.jsonl", vocabulary)
+            write_jsonl(analysis / "terminology-candidates.jsonl", [])
+            (analysis / "corpus-stats.json").write_text(
+                json.dumps({"vocabulary_entry_count": 2}), encoding="utf-8"
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "lemma": "alpha",
+                        "part_of_speech": "n.",
+                        "meaning_en": "first",
+                        "meaning_zh": "第一个",
+                    }
+                )
+            selection = analysis / "domain-review-selection.json"
+            selection.write_text(
+                json.dumps(
+                    {
+                        "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_glosses": {},
+                        "vocabulary_card_drops": ["geotagging"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = build_catalog(workspace, selection, dictionary)
+
+            self.assertEqual(result["drop_count"], 1)
+            retained = [
+                json.loads(line)["lemma"]
+                for line in (analysis / "vocabulary-map.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            cards = [
+                json.loads(line)["lemma"]
+                for line in (analysis / "vocabulary-card-catalog.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertEqual(retained, ["alpha"])
+            self.assertEqual(cards, ["alpha"])
+            self.assertNotIn("geotagging", (analysis / "vocabulary-map.tsv").read_text())
+            stats = json.loads((analysis / "corpus-stats.json").read_text())
+            self.assertEqual(stats["vocabulary_entry_count"], 1)
+            self.assertEqual(stats["vocabulary_card_drop_count"], 1)
 
     def test_legacy_catalog_summary_requires_semantic_rereview(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -752,6 +871,7 @@ class VocabularyCardBuildTests(unittest.TestCase):
                 json.dumps(
                     {
                         "vocabulary_card_review_schema_version": 3,
+                        "vocabulary_card_drops": [],
                         "vocabulary_card_glosses": {},
                     }
                 ),
