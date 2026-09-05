@@ -31,7 +31,9 @@ confirmed profile and workspace
         ↓
 unattended research and host-agent review
         ↓
-vocabulary cards + terminology finalized together
+canonical vocabulary finalized
+        ↓
+vocabulary cards + terminology finalized
         ↓
 registered library service started and live-verified
         ↓
@@ -174,29 +176,33 @@ wait on the same session; do not launch a duplicate.
 
 For each `host_action_required`, read `next_action.input` or every file in
 `next_action.inputs`, write `next_action.output`, then immediately execute the
-supplied `resume` command in this same task. The two possible host actions are:
+supplied `resume` command in this same task. The three possible host actions are:
 
 1. Candidate review: select and order directly relevant title-and-abstract
    records, including enough relevant backups for failed links. Reject
    incidental keyword matches, off-scope disciplines, comments, replies,
    corrections, withdrawn records, and violations of the confirmed date or
    category boundary. Do not ask the user to screen papers.
-2. Combined domain review: in one JSON, review every queued lemma, every
-   vocabulary-card gloss miss or ambiguity, and every terminology candidate. Correct only confirmed lemma/fused-form errors, drop
-   only extraction noise, and keep stable shared multiword concepts supported
-   by a representative source-paper sentence. Supply complete English meaning,
-   Chinese meaning, concept role, and stable sense key for every selected term.
-   Supply a concise Chinese gloss keyed by the final canonical lemma for every
-   vocabulary-card miss or ambiguity; English is optional.
+2. Vocabulary orthography review: review every queued lemma before any
+   vocabulary-card lookup begins. Put every valid queued lemma in `lemma_keeps`, correct
+   only confirmed lemma/fused-form errors in `lemma_replacements`, and put only
+   extraction noise in `lemma_drops`. Every queued lemma must appear in exactly
+   one of those three fields. The controller applies this review and writes the
+   finalized vocabulary before continuing.
+3. Learning-asset review: review terminology candidates and only the
+   vocabulary-card gloss misses from the finalized vocabulary. Keep stable
+   shared multiword concepts supported by a representative source-paper
+   sentence, supplying complete English meaning, Chinese meaning, concept role,
+   and stable sense key. Supply a concise Chinese gloss keyed by the already
+   finalized canonical lemma for every vocabulary-card miss; English is optional.
 
 Every review JSON uses `schema_version: 1` and
-`reviewer: current-host-agent`. After the combined review, the controller runs
-`finalize_domain_assets.py` exactly once. That script finalizes and loads the
-vocabulary map, stable bilingual vocabulary-card catalog, and terminology,
-writes one `domain-assets-summary.json`, and returns success only when all are
-ready. The bundled dictionary prepares unambiguous card glosses before this
-review. Only then may the controller start
-the calibration service.
+`reviewer: current-host-agent`. After orthography finalization, the bundled
+dictionary supplies unambiguous meanings only for the resulting canonical
+vocabulary. The controller then runs `finalize_domain_assets.py` exactly once
+to finalize and load the stable bilingual vocabulary-card catalog and
+terminology, write `domain-assets-summary.json`, and return success only when
+all assets are ready. Only then may it start the calibration service.
 
 The acquisition algorithm, corpus viability rule, evidence rules, and artifact
 layout are specified once in `mini-corpus-workflow.md`. In particular, 60–69 of

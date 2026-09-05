@@ -15,7 +15,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from continuous_state import ContinuousStore  # noqa: E402
-from vocabulary_cards import build_catalog, card_id  # noqa: E402
+from vocabulary_cards import build_catalog, card_id, prepare_review_input  # noqa: E402
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -169,6 +169,76 @@ class VocabularyCardStoreTests(unittest.TestCase):
 
 
 class VocabularyCardBuildTests(unittest.TestCase):
+    def test_review_candidates_come_from_finalized_vocabulary_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            analysis = workspace / "analysis"
+            analysis.mkdir()
+            write_jsonl(
+                analysis / "pre-orthography-vocabulary-map.jsonl",
+                [
+                    {
+                        "lemma": lemma,
+                        "part_of_speech": "noun",
+                        "representative_sentences": [],
+                        "source_papers": ["W1"],
+                    }
+                    for lemma in ("whic", "ery", "tly")
+                ],
+            )
+            write_jsonl(
+                analysis / "vocabulary-map.jsonl",
+                [
+                    {
+                        "lemma": "canonicalterm",
+                        "part_of_speech": "noun",
+                        "representative_sentences": [
+                            {"openalex_id": "W1", "sentence": "Canonicalterm is valid."}
+                        ],
+                        "source_papers": ["W1"],
+                    }
+                ],
+            )
+            (analysis / "orthography-review-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "reviewer": "current-host-agent",
+                        "reviewed_candidate_count": 0,
+                        "replacement_count": 0,
+                        "drop_count": 0,
+                        "explicit_keep_count": 0,
+                        "unchanged_candidate_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (analysis / "corpus-stats.json").write_text(
+                json.dumps({"orthography_review_applied": True}),
+                encoding="utf-8",
+            )
+            dictionary = analysis / "dictionary.tsv.gz"
+            with gzip.open(dictionary, "wt", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["lemma", "part_of_speech", "meaning_en", "meaning_zh"],
+                    delimiter="\t",
+                )
+                writer.writeheader()
+
+            result = prepare_review_input(workspace, dictionary)
+            payload = json.loads(
+                (analysis / "vocabulary-card-review-input.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            self.assertEqual(result["candidate_count"], 1)
+            self.assertEqual(
+                [item["observed_lemma"] for item in payload["candidates"]],
+                ["canonicalterm"],
+            )
+
     def test_dictionary_first_and_agent_fallback_write_complete_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

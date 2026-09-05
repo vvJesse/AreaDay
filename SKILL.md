@@ -177,9 +177,11 @@ the current task must continue:
 
 An internal command exit, a candidate count, downloaded PDFs, completed corpus
 analysis, a vocabulary file, or a terminology count is never a reason to stop.
-The controller must run `finalize_domain_assets.py`, which finalizes and loads
-both vocabulary and terminology in one invocation. It may start calibration
-only after that invocation succeeds.
+The controller must finish the standalone exhaustive orthography review before
+preparing any vocabulary-card gloss candidates. It then runs
+`finalize_domain_assets.py`, which loads the already finalized vocabulary and
+finalizes its cards together with terminology. It may start calibration only
+after that invocation succeeds.
 The preparation operation may hand control to the user only when the controller
 returns `terminal: true`, `checkpoint: calibration_service_ready`, and a live
 URL whose service record says both `vocabulary_ready` and

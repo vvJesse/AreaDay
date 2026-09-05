@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from researchramp_core import read_json, utc_now, write_json, write_jsonl
+from orthography_contract import orthography_summary_is_complete
 
 
 CATALOG_NAME = "vocabulary-card-catalog.jsonl"
@@ -182,12 +183,22 @@ def _source_for_word(word: dict[str, Any], papers: dict[str, dict[str, Any]]) ->
 
 
 def prepare_review_input(workspace: Path, dictionary_path: Path) -> dict[str, Any]:
-    """Prepare only dictionary misses/ambiguities for the existing host review."""
+    """Prepare dictionary misses only after vocabulary spelling is finalized."""
 
     resolved = workspace.expanduser().resolve()
     analysis = resolved / "analysis"
+    orthography = read_json(analysis / "orthography-review-summary.json")
+    corpus_stats = read_json(analysis / "corpus-stats.json")
+    if (
+        not orthography_summary_is_complete(orthography)
+        or not isinstance(corpus_stats, dict)
+        or corpus_stats.get("orthography_review_applied") is not True
+    ):
+        raise ValueError(
+            "Vocabulary orthography review must be finalized before card preparation"
+        )
     glossary = load_dictionary_glosses(dictionary_path)
-    vocabulary = _load_jsonl(analysis / "pre-orthography-vocabulary-map.jsonl")
+    vocabulary = _load_jsonl(analysis / "vocabulary-map.jsonl")
     candidates = []
     for word in vocabulary:
         lemma = _normalize(word.get("lemma"))
@@ -208,8 +219,8 @@ def prepare_review_input(workspace: Path, dictionary_path: Path) -> dict[str, An
         "instruction": (
             "For each unresolved vocabulary card, write a concise Chinese explanation "
             "grounded in the supplied representative sentence. Also write a concise "
-            "English explanation when it is useful. Use the final canonical lemma if you "
-            "also correct that lemma in the orthography review."
+            "English explanation when it is useful. Every candidate already passed the "
+            "separate orthography review; use its supplied canonical lemma unchanged."
         ),
         "candidates": candidates,
     }
@@ -225,7 +236,7 @@ def build_catalog(workspace: Path, selection_path: Path, dictionary_path: Path) 
     glossary = load_dictionary_glosses(dictionary_path)
     selection = read_json(selection_path.expanduser().resolve())
     if not isinstance(selection, dict):
-        raise ValueError("Combined domain review must be an object")
+        raise ValueError("Learning-asset review must be an object")
     reviewed = _review_glosses(selection)
     papers = _paper_index(resolved)
     vocabulary = _load_jsonl(analysis / "vocabulary-map.jsonl")

@@ -40,6 +40,7 @@ from open_workbench import (
     probe_workbench,
     start_workbench,
 )
+from orthography_contract import orthography_summary_is_complete
 from research_profile import validate_profile
 from researchramp_license import enforce_business_license
 from researchramp_core import read_json, utc_now, write_json
@@ -305,34 +306,72 @@ class InitializationController:
         if not terminology_input.is_file():
             raise InitializationError("Analysis did not write terminology review input")
 
+        orthography_selection = (
+            self.workspace / "analysis" / "orthography-review-selection.json"
+        )
+        orthography_summary = (
+            self.workspace / "analysis" / "orthography-review-summary.json"
+        )
+        orthography_is_complete = (
+            orthography_summary.is_file()
+            and orthography_summary_is_complete(_read_json_object(orthography_summary))
+        )
+        if not orthography_is_complete:
+            if not orthography_selection.is_file():
+                self._host_action(
+                    "review_vocabulary_orthography",
+                    input_path=orthography_input,
+                    output_path=orthography_selection,
+                    checkpoint="orthography_review_needed",
+                    instructions=(
+                        "Review every suspicious vocabulary lemma. Write one "
+                        "schema_version=1 review with reviewer=current-host-agent, "
+                        "lemma_keeps, lemma_replacements, lemma_drops, and "
+                        "review_summary. Every candidate must appear in exactly one "
+                        "of lemma_keeps, lemma_replacements, or lemma_drops; then "
+                        "immediately resume."
+                    ),
+                )
+                raise StopIteration
+            self._run_helper(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("apply_orthography_review.py")),
+                    "--workspace",
+                    str(self.workspace),
+                    "--selection",
+                    str(orthography_selection),
+                ],
+                "finalizing_vocabulary_orthography",
+            )
+
         card_review_input = self.workspace / "analysis" / "vocabulary-card-review-input.json"
-        if not card_review_input.is_file():
+        combined_selection = self.workspace / "analysis" / "domain-review-selection.json"
+        assets_summary = self.workspace / "analysis" / "domain-assets-summary.json"
+        if not assets_summary.is_file():
             prepare_review_input(
                 self.workspace,
                 Path(__file__).resolve().parents[1] / "app" / "data" / GLOSS_DATA_NAME,
             )
 
-        combined_selection = self.workspace / "analysis" / "domain-review-selection.json"
-        assets_summary = self.workspace / "analysis" / "domain-assets-summary.json"
         if not assets_summary.is_file():
             if not combined_selection.is_file():
                 self._host_action(
-                    "review_vocabulary_and_terminology",
+                    "review_vocabulary_cards_and_terminology",
                     input_paths={
-                        "vocabulary": orthography_input,
                         "terminology": terminology_input,
                         "vocabulary_cards": card_review_input,
                     },
                     output_path=combined_selection,
-                    checkpoint="domain_review_needed",
+                    checkpoint="learning_asset_review_needed",
                     instructions=(
-                        "Review the vocabulary spelling queue and terminology candidates "
-                        "together. Write one schema_version=1 review with "
-                        "reviewer=current-host-agent, lemma_replacements, lemma_drops, "
-                        "terminology, terminology_explanations, vocabulary_card_glosses, "
+                        "Review the vocabulary-card gloss candidates and terminology "
+                        "candidates together. Write one schema_version=1 review with "
+                        "reviewer=current-host-agent, terminology, "
+                        "terminology_explanations, vocabulary_card_glosses, "
                         "and review_summary. vocabulary_card_glosses must provide the "
                         "Chinese meaning for every vocabulary_cards candidate, keyed by its "
-                        "final canonical lemma; English is optional. Then "
+                        "already finalized canonical lemma; English is optional. Then "
                         "immediately resume."
                     ),
                 )

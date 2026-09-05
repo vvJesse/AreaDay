@@ -98,6 +98,8 @@ def make_workspace(root: Path) -> Path:
             "reviewed_candidate_count": 0,
             "replacement_count": 0,
             "drop_count": 0,
+            "explicit_keep_count": 0,
+            "unchanged_candidate_count": 0,
         },
     )
     write_json(
@@ -169,6 +171,18 @@ class TerminologyInitializationTests(unittest.TestCase):
                 "".join(json.dumps(item) + "\n" for item in vocabulary),
                 encoding="utf-8",
             )
+            (analysis / "vocabulary-map.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in vocabulary),
+                encoding="utf-8",
+            )
+            write_json(
+                analysis / "corpus-stats.json",
+                {
+                    "orthography_review_applied": True,
+                    "content_lemma_token_count": 300,
+                    "vocabulary_entry_count": 30,
+                },
+            )
             (analysis / "paper-decisions.jsonl").write_text(
                 json.dumps({"openalex_id": "W1", "analysis_decision": "include"})
                 + "\n",
@@ -194,8 +208,6 @@ class TerminologyInitializationTests(unittest.TestCase):
                 {
                     "schema_version": 1,
                     "reviewer": "current-host-agent",
-                    "lemma_replacements": {},
-                    "lemma_drops": [],
                     "terminology": {"robust analysis": 1.0},
                     "terminology_explanations": {
                         "robust analysis": {
