@@ -262,14 +262,17 @@ def analyze_corpus(
         "schema_version": 1,
         "instruction": (
             "These are high-recall suspicious spaCy lemmas, not confirmed errors. "
-            "Review the surface forms and representative sentences. Omit valid "
-            "technical terms, names, abbreviations, and legitimate variants so they "
-            "remain unchanged. Map a malformed lemma to its correct canonical lemma. "
-            "Drop only extraction noise that should not be a vocabulary entry."
+            "Review every candidate using its surface forms and representative "
+            "sentences. Put valid technical terms, names, abbreviations, and legitimate "
+            "variants in lemma_keeps. Map a malformed lemma to its correct canonical "
+            "lemma. Drop only extraction noise that should not be a vocabulary entry. "
+            "Every candidate must appear in exactly one of lemma_keeps, "
+            "lemma_replacements, or lemma_drops."
         ),
         "selection_schema": {
             "schema_version": 1,
             "reviewer": "current-host-agent",
+            "lemma_keeps": ["observed lemma confirmed as valid"],
             "lemma_replacements": {"observed lemma": "canonical lemma"},
             "lemma_drops": ["observed lemma that is extraction noise"],
             "review_summary": "short factual string",

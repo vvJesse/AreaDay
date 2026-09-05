@@ -319,9 +319,11 @@ class InitializationController:
                     instructions=(
                         "Review the vocabulary spelling queue and terminology candidates "
                         "together. Write one schema_version=1 review with "
-                        "reviewer=current-host-agent, lemma_replacements, lemma_drops, "
+                        "reviewer=current-host-agent, lemma_keeps, lemma_replacements, "
+                        "lemma_drops, "
                         "terminology, terminology_explanations, and review_summary; then "
-                        "immediately resume."
+                        "immediately resume. Every vocabulary candidate must appear in "
+                        "exactly one of lemma_keeps, lemma_replacements, or lemma_drops."
                     ),
                 )
                 raise StopIteration

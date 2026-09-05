@@ -182,9 +182,11 @@ supplied `resume` command in this same task. The two possible host actions are:
    corrections, withdrawn records, and violations of the confirmed date or
    category boundary. Do not ask the user to screen papers.
 2. Combined domain review: in one JSON, review every queued lemma and every
-   terminology candidate. Correct only confirmed lemma/fused-form errors, drop
-   only extraction noise, and keep stable shared multiword concepts supported
-   by a representative source-paper sentence. Supply complete English meaning,
+   terminology candidate. Put every valid queued lemma in `lemma_keeps`, correct
+   only confirmed lemma/fused-form errors in `lemma_replacements`, and put only
+   extraction noise in `lemma_drops`. Every queued lemma must appear in exactly
+   one of those three fields. Keep stable shared multiword concepts supported by
+   a representative source-paper sentence. Supply complete English meaning,
    Chinese meaning, concept role, and stable sense key for every selected term.
 
 Every review JSON uses `schema_version: 1` and
