@@ -126,7 +126,10 @@ tab.
 The launcher performs the operational work: it treats port 8765 as the preferred
 port, identifies a compatible live AreaDay service across its bounded fallback
 range by exact registry, starts the registered-domain service only when needed,
-waits until it is ready, and prints the exact user-facing URL. Do not repeat
+replaces a verified same-registry service whose loaded domain set is stale,
+waits until it is ready, and prints the exact user-facing URL. An unattended
+workbench exits after one hour by default; the open page tells the user to reopen
+AreaDay through Codex or WorkBuddy. Do not repeat
 runtime checks, registry inspection, server startup, identity checks, port
 selection, or URL construction outside the launcher.
 

@@ -39,6 +39,7 @@ from vocabulary_cards import (
     validate_review_batch,
 )
 from open_workbench import (
+    DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
     HOST,
     ensure_workbench,
     launchable_registry_domain_ids,
@@ -213,6 +214,14 @@ class InitializationController:
             str(self.args.download_workers_per_host),
             "--port",
             str(self.args.port),
+            "--idle-timeout-seconds",
+            str(
+                getattr(
+                    self.args,
+                    "idle_timeout_seconds",
+                    DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+                )
+            ),
         ]
 
     def _run_helper(
@@ -527,6 +536,11 @@ class InitializationController:
             view,
             port,
             ready_calibration_domain=domain_id,
+            idle_timeout_seconds=getattr(
+                self.args,
+                "idle_timeout_seconds",
+                DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+            ),
         )
         launch = ensure_workbench(
             self.registry_path,
@@ -714,6 +728,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--download-workers", type=int, default=4)
     parser.add_argument("--download-workers-per-host", type=int, default=2)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+        help="Stop the calibration workbench after this many idle seconds.",
+    )
     args = parser.parse_args()
     if not 1 <= args.target_papers <= 100:
         parser.error("--target-papers must be between 1 and 100")
@@ -723,6 +743,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--download-workers-per-host must be between 1 and --download-workers")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
+    if args.idle_timeout_seconds < 0:
+        parser.error("--idle-timeout-seconds must be zero or positive")
     return args
 
 

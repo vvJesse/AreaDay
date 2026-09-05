@@ -45,9 +45,12 @@ from remote_calibration import (  # noqa: E402
     RemoteCalibrationSession,
 )
 from workbench_protocol import (  # noqa: E402
+    DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+    WORKBENCH_ACTIVITY_PATH,
     WORKBENCH_IDENTITY_PATH,
     WORKBENCH_IDENTITY_VERSION,
     WORKBENCH_SERVICE,
+    WORKBENCH_SHUTDOWN_PATH,
 )
 
 
@@ -264,6 +267,58 @@ class AppRuntime:
         return context.continuous_store
 
 
+class WorkbenchHTTPServer(ThreadingHTTPServer):
+    """Serve the workbench until explicitly stopped or left idle."""
+
+    daemon_threads = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class: type[BaseHTTPRequestHandler],
+        *,
+        idle_timeout_seconds: float = DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+    ) -> None:
+        if (
+            isinstance(idle_timeout_seconds, bool)
+            or not isinstance(idle_timeout_seconds, (int, float))
+            or idle_timeout_seconds < 0
+        ):
+            raise ValueError("Workbench idle timeout must be zero or positive")
+        super().__init__(server_address, handler_class)
+        self.idle_timeout_seconds = idle_timeout_seconds
+        self._activity_lock = threading.Lock()
+        self._last_activity = time.monotonic()
+        self._shutdown_requested = threading.Event()
+        self.shutdown_reason: str | None = None
+
+    def record_activity(self) -> None:
+        with self._activity_lock:
+            self._last_activity = time.monotonic()
+
+    def lifecycle_snapshot(self) -> dict[str, float]:
+        return {"idle_timeout_seconds": self.idle_timeout_seconds}
+
+    def request_shutdown(self, reason: str) -> None:
+        self.shutdown_reason = reason
+        self._shutdown_requested.set()
+
+    def serve_until_shutdown(self) -> None:
+        while not self._shutdown_requested.is_set():
+            if self.idle_timeout_seconds:
+                with self._activity_lock:
+                    remaining = self.idle_timeout_seconds - (
+                        time.monotonic() - self._last_activity
+                    )
+                if remaining <= 0:
+                    self.request_shutdown("idle_timeout")
+                    break
+                self.timeout = min(0.25, max(0.01, remaining))
+            else:
+                self.timeout = 0.25
+            self.handle_request()
+
+
 class AppHandler(BaseHTTPRequestHandler):
     runtime: AppRuntime
     static_dir: Path
@@ -302,6 +357,17 @@ class AppHandler(BaseHTTPRequestHandler):
             payload["domain_id"] = domain_id
         self._send_json(payload, status)
 
+    def _record_activity(self) -> None:
+        recorder = getattr(getattr(self, "server", None), "record_activity", None)
+        if callable(recorder):
+            recorder()
+
+    def _lifecycle_snapshot(self) -> dict[str, float]:
+        snapshot = getattr(getattr(self, "server", None), "lifecycle_snapshot", None)
+        if callable(snapshot):
+            return snapshot()
+        return {"idle_timeout_seconds": 0}
+
     def _requested_domain_id(
         self, parsed: Any, body: dict[str, Any] | None = None
     ) -> str | None:
@@ -330,6 +396,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == WORKBENCH_IDENTITY_PATH:
                 self._send_json(self.runtime.identity())
                 return
+            self._record_activity()
             if path == "/api/domains":
                 self._send_api_json(
                     {
@@ -350,9 +417,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 )
                 return
             if path == "/api/app-state":
-                self._send_json(
-                    self.runtime.app_state(self._requested_domain_id(parsed))
-                )
+                state = self.runtime.app_state(self._requested_domain_id(parsed))
+                state["lifecycle"] = self._lifecycle_snapshot()
+                self._send_json(state)
                 return
             if path == "/api/paper":
                 context = self._context(parsed)
@@ -436,6 +503,27 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == WORKBENCH_SHUTDOWN_PATH:
+            length = int(self.headers.get("Content-Length", "0"))
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                if not isinstance(body, dict):
+                    raise ValueError("Request body must be a JSON object")
+                if body.get("instance_id") != self.runtime.instance_id:
+                    self._send_json(
+                        {"error": "AreaDay workbench instance ID does not match"},
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                self._send_json({"status": "shutting_down"})
+                requester = getattr(self.server, "request_shutdown", None)
+                if callable(requester):
+                    requester("launcher_replacement")
+                else:
+                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+            except (ValueError, TypeError, json.JSONDecodeError) as error:
+                self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return
         if self.headers.get("X-ResearchRamp-API-Version") != str(APP_API_VERSION):
             self._send_api_json(
                 {
@@ -452,6 +540,13 @@ class AppHandler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError("Request body must be a JSON object")
             context = self._context(parsed, body)
+            self._record_activity()
+            if path == WORKBENCH_ACTIVITY_PATH:
+                self._send_api_json(
+                    {"lifecycle": self._lifecycle_snapshot()},
+                    domain_id=context.domain_id,
+                )
+                return
             if path == "/api/answer":
                 context.session.answer(
                     str(body.get("lemma", "")), str(body.get("response", ""))
@@ -574,7 +669,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     domain_id=context.domain_id,
                 )
                 if self.exit_on_settings_save:
-                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+                    requester = getattr(self.server, "request_shutdown", None)
+                    if callable(requester):
+                        requester("settings_saved")
+                    else:
+                        threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             self._send_api_json(
                 {"error": "Not found"},
@@ -659,6 +758,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=DEFAULT_WORKBENCH_IDLE_TIMEOUT_SECONDS,
+        help="Stop after this many seconds without user activity; zero disables it.",
+    )
+    parser.add_argument(
         "--instance-id",
         help="Launcher-owned workbench instance ID used only for startup convergence.",
     )
@@ -674,7 +779,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Stop the temporary settings server after a valid schedule is saved.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.idle_timeout_seconds < 0:
+        parser.error("--idle-timeout-seconds must be zero or positive")
+    return args
 
 
 def resolve_calibration_paths(args: argparse.Namespace) -> tuple[Path, Path, str]:
@@ -932,7 +1040,11 @@ def main() -> None:
     AppHandler.settings_saved = False
     AppHandler.settings_saved_domain_id = None
     AppHandler.settings_saved_section = None
-    server = ThreadingHTTPServer((args.host, args.port), AppHandler)
+    server = WorkbenchHTTPServer(
+        (args.host, args.port),
+        AppHandler,
+        idle_timeout_seconds=args.idle_timeout_seconds,
+    )
     url = f"http://{args.host}:{args.port}"
     selected = runtime.context(runtime.initial_domain_id)
     print(
@@ -941,11 +1053,13 @@ def main() -> None:
     )
     print(f"Open {url}")
     print(f"Initial view: {args.mode}")
+    if args.idle_timeout_seconds:
+        print(f"Idle shutdown: {args.idle_timeout_seconds} seconds")
     print("Press Ctrl+C to stop")
     if not args.no_browser:
         threading.Timer(0.7, lambda: webbrowser.open(url)).start()
     try:
-        server.serve_forever()
+        server.serve_until_shutdown()
     except KeyboardInterrupt:
         pass
     finally:
